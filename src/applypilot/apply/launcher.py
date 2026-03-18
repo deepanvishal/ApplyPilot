@@ -135,7 +135,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
-                  AND (application_url IS NOT NULL AND application_url != '')
+                  AND (application_url IS NOT NULL AND application_url NOT LIKE '%linkedin.com%')
                   {site_clause}
                   {url_clauses}
                 ORDER BY fit_score DESC, url
@@ -304,13 +304,6 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         'applied', 'expired', 'captcha', 'login_issue',
         'failed:reason', or 'skipped'.
     """
-    # Guard: skip if no valid apply URL
-    # Guard: skip if no valid apply URL
-    apply_url = job.get("application_url") or job.get("url") or ""
-    if not apply_url:
-        logger.warning("Skipping job with no apply URL")
-        return "skipped", 0
-
     # Read tailored resume text
     resume_path = job.get("tailored_resume_path")
     txt_path = Path(resume_path).with_suffix(".txt") if resume_path else None
