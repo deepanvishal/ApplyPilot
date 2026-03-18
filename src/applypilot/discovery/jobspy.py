@@ -79,18 +79,27 @@ def _scrape_with_retry(kwargs: dict, max_retries: int = 2, backoff: float = 5.0)
 def _load_location_config(search_cfg: dict) -> tuple[list[str], list[str]]:
     """Extract accept/reject location lists from search config.
 
-    Falls back to sensible defaults if not defined in the YAML.
+    Supports both top-level keys (location_accept / location_reject_non_remote)
+    and the nested block form (location: { accept_patterns:, reject_patterns: }).
     """
-    accept = search_cfg.get("location_accept", [])
-    reject = search_cfg.get("location_reject_non_remote", [])
+    loc_block = search_cfg.get("location", {}) or {}
+    accept = (
+        search_cfg.get("location_accept")
+        or loc_block.get("accept_patterns", [])
+    )
+    reject = (
+        search_cfg.get("location_reject_non_remote")
+        or loc_block.get("reject_patterns", [])
+    )
     return accept, reject
 
 
 def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> bool:
     """Check if a job location passes the user's location filter.
 
-    Remote jobs are always accepted. Non-remote jobs must match an accept
-    pattern and not match a reject pattern.
+    Remote jobs are always accepted. Non-remote jobs are checked against
+    reject patterns first, then accept patterns. If no accept patterns are
+    configured, all non-rejected locations pass through.
     """
     if not location:
         return True  # unknown location -- keep it, let scorer decide
@@ -111,7 +120,11 @@ def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> 
         if a.lower() in loc:
             return True
 
-    # No match -- reject unknown
+    # No accept patterns configured -- let everything through
+    if not accept:
+        return True
+
+    # Accept patterns exist but none matched -- reject
     return False
 
 
@@ -165,13 +178,15 @@ def store_jobspy_results(conn: sqlite3.Connection, df, source_label: str) -> tup
 
         # Extract apply URL if JobSpy provided it
         apply_url = str(row.get("job_url_direct", "")) if str(row.get("job_url_direct", "")) != "nan" else None
+        if not apply_url and str(row.get("site", "")) == "linkedin":
+            continue
 
         try:
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, "
+                "INSERT INTO jobs (url, title, company, salary, description, location, site, strategy, discovered_at, "
                 "full_description, application_url, detail_scraped_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (url, title, salary, description, location_str, site_label, strategy, now,
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (url, title, company, salary, description, location_str, site_label, strategy, now,
                  full_description, apply_url, detail_scraped_at),
             )
             new += 1
@@ -369,7 +384,7 @@ def _full_crawl(
 ) -> dict:
     """Run all search queries from search config across all locations."""
     if sites is None:
-        sites = ["indeed", "linkedin", "zip_recruiter"]
+        sites = ["linkedin"]
 
     # Build search combinations from config
     queries = search_cfg.get("queries", [])
@@ -461,7 +476,7 @@ def run_discovery(cfg: dict | None = None) -> dict:
         return {"new": 0, "existing": 0, "errors": 0, "db_total": 0, "queries": 0}
 
     proxy = cfg.get("proxy")
-    sites = cfg.get("sites")
+    sites = cfg.get("sites") or cfg.get("boards")
     results_per_site = cfg.get("defaults", {}).get("results_per_site", 100)
     hours_old = cfg.get("defaults", {}).get("hours_old", 72)
     tiers = cfg.get("tiers")

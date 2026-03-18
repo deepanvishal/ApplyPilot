@@ -93,31 +93,13 @@ def _build_profile_summary(profile: dict) -> str:
 
 
 def _build_location_check(profile: dict, search_config: dict) -> str:
-    """Build the location eligibility check section of the prompt.
-
-    Uses the accept_patterns from search config to determine which cities
-    are acceptable for hybrid/onsite roles.
-    """
-    personal = profile["personal"]
-    location_cfg = search_config.get("location", {})
-    accept_patterns = location_cfg.get("accept_patterns", [])
-    primary_city = personal.get("city", location_cfg.get("primary", "your city"))
-
-    # Build the list of acceptable cities for hybrid/onsite
-    if accept_patterns:
-        city_list = ", ".join(accept_patterns)
-    else:
-        city_list = primary_city
-
-    return f"""== LOCATION CHECK (do this FIRST before any form) ==
-Read the job page. Determine the work arrangement. Then decide:
-- "Remote" or "work from anywhere" -> ELIGIBLE. Apply.
-- "Hybrid" or "onsite" in {city_list} -> ELIGIBLE. Apply.
-- "Hybrid" or "onsite" in another city BUT the posting also says "remote OK" or "remote option available" -> ELIGIBLE. Apply.
-- "Onsite only" or "hybrid only" in any city outside the list above with NO remote option -> NOT ELIGIBLE. Stop immediately. Output RESULT:FAILED:not_eligible_location
-- City is overseas (India, Philippines, Europe, etc.) with no remote option -> NOT ELIGIBLE. Output RESULT:FAILED:not_eligible_location
-- Cannot determine location -> Continue applying. If a screening question reveals it's non-local onsite, answer honestly and let the system reject if needed.
-Do NOT fill out forms for jobs that are clearly onsite in a non-acceptable location. Check EARLY, save time."""
+    """Build the location section of the prompt."""
+    return """== LOCATION ==
+Apply to ALL jobs regardless of location or work arrangement (remote, hybrid, onsite).
+- For any relocation question: answer YES, candidate is willing to relocate.
+- For any "are you local to X?" question: answer YES.
+- Never skip or fail a job based on location.
+- Never output RESULT:FAILED:not_eligible_location."""
 
 
 def _build_salary_section(profile: dict) -> str:
@@ -173,7 +155,7 @@ def _build_screening_section(profile: dict) -> str:
 
     return f"""== SCREENING QUESTIONS (be strategic) ==
 Hard facts -> answer truthfully from the profile. No guessing. This includes:
-  - Location/relocation: lives in {city}, cannot relocate
+  - Location/relocation: answer YES to relocation, YES to local questions — candidate is willing to relocate anywhere
   - Work authorization: {work_auth.get('legally_authorized_to_work', 'see profile')}
   - Citizenship, clearance, licenses, certifications: answer from profile only
   - Criminal/background: answer from profile only
@@ -560,7 +542,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 == STEP-BY-STEP ==
 1. browser_navigate to the job URL.
 2. browser_snapshot to read the page. Then run CAPTCHA DETECT (see CAPTCHA section). If a CAPTCHA is found, solve it before continuing.
-3. LOCATION CHECK. Read the page for location info. If not eligible, output RESULT and stop.
+3. Read the page for any location/relocation questions. Answer YES to all of them — candidate is willing to relocate.
 4. Find and click the Apply button. If email-only (page says "email resume to X"):
    - send_email with subject "Application for {job['title']} -- {display_name}", body = 2-3 sentence pitch + contact info, attach resume PDF: ["{pdf_path}"]
    - Output RESULT:APPLIED. Done.
@@ -589,7 +571,6 @@ RESULT:APPLIED -- submitted successfully
 RESULT:EXPIRED -- job closed or no longer accepting applications
 RESULT:CAPTCHA -- blocked by unsolvable captcha
 RESULT:LOGIN_ISSUE -- could not sign in or create account
-RESULT:FAILED:not_eligible_location -- onsite outside acceptable area, no remote option
 RESULT:FAILED:not_eligible_work_auth -- requires unauthorized work location
 RESULT:FAILED:reason -- any other failure (brief reason)
 

@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 # Sites that block scraping -- skip detail extraction entirely
-SKIP_DETAIL_SITES = {"glassdoor", "google", "Workopolis"}
+SKIP_DETAIL_SITES = {"glassdoor", "google", "Workopolis", "linkedin"}
 
 # Module-level proxy config (set from CLI or caller)
 _PROXY_CONFIG: dict | None = None

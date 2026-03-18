@@ -34,6 +34,15 @@ IMPORTANT FACTORS:
 - Consider transferable experience (automation, scripting, API work)
 - Factor in the candidate's project experience
 - Be realistic about experience level vs. job requirements (years of experience, seniority)
+- Score any role explicitly mentioning recommendation systems, embeddings, HSTU, SASRec, BERT4Rec, sequential models, or provider network optimization a 10 — perfect match for candidate's core expertise
+- Score CONTRACT, C2C, or W2 contract roles 3 points lower than equivalent full-time roles
+- Score any role requiring SECURITY CLEARANCE (Secret, Top Secret, TS/SCI) a 1 — candidate cannot obtain clearance
+- Score roles explicitly requiring US CITIZENSHIP ONLY a 1 — candidate requires H1B sponsorship consideration
+- Score any INTERNSHIP or ENTRY LEVEL role a 1 — candidate has 10+ years experience
+- Score any role with hourly pay rate ($/hour, per hour) a 1 — candidate requires salaried positions only
+- Score any role with SOFTWARE ENGINEER or SOFTWARE DEVELOPER in the title (not data scientist or ML) a 1 — outside candidate's target domain
+- AI Scientist and ML Scientist roles should score higher than AI Engineer and ML Engineer roles for this candidate — candidate's background is research/science focused not pure engineering
+- Score any GRADUATE, POSTGRADUATE, PHD, or NEW GRAD role a 1 — candidate has 10+ years experience
 
 RESPOND IN EXACTLY THIS FORMAT (no other text):
 SCORE: [1-10]
@@ -82,7 +91,7 @@ def score_job(resume_text: str, job: dict) -> dict:
     """
     job_text = (
         f"TITLE: {job['title']}\n"
-        f"COMPANY: {job['site']}\n"
+        f"COMPANY: {job.get('company') or job.get('site', 'N/A')}\n"
         f"LOCATION: {job.get('location', 'N/A')}\n\n"
         f"DESCRIPTION:\n{(job.get('full_description') or '')[:6000]}"
     )
