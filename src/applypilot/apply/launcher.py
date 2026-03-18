@@ -135,7 +135,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
-                  AND (application_url IS NOT NULL AND application_url != '' AND application_url NOT LIKE '%linkedin.com%')
+                  AND (application_url IS NOT NULL AND application_url != '')
                   {site_clause}
                   {url_clauses}
                 ORDER BY fit_score DESC, url
@@ -305,9 +305,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         'failed:reason', or 'skipped'.
     """
     # Guard: skip if no valid apply URL
+    # Guard: skip if no valid apply URL
     apply_url = job.get("application_url") or job.get("url") or ""
-    if not apply_url or "linkedin.com" in apply_url:
-        logger.warning("Skipping job with invalid apply URL: %s", apply_url or "None")
+    if not apply_url:
+        logger.warning("Skipping job with no apply URL")
         return "skipped", 0
 
     # Read tailored resume text
@@ -533,7 +534,6 @@ PERMANENT_FAILURES: set[str] = {
     "not_a_job_application", "unsafe_permissions",
     "unsafe_verification", "sso_required",
     "site_blocked", "cloudflare_blocked", "blocked_by_cloudflare",
-    "linkedin_required",
 }
 
 PERMANENT_PREFIXES: tuple[str, ...] = ("site_blocked", "cloudflare", "blocked_by")
