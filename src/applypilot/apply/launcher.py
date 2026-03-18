@@ -111,7 +111,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                 FROM jobs
                 WHERE (url = ? OR application_url = ? OR application_url LIKE ? OR url LIKE ?)
                   AND tailored_resume_path IS NOT NULL
-                  AND apply_status != 'in_progress'
+                  AND (apply_status IS NULL OR apply_status != 'in_progress')
                 LIMIT 1
             """, (target_url, target_url, like, like)).fetchone()
         else:
@@ -135,6 +135,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
+                  AND (application_url IS NOT NULL AND application_url NOT LIKE '%linkedin.com%')
                   {site_clause}
                   {url_clauses}
                 ORDER BY fit_score DESC, url
@@ -284,7 +285,7 @@ def reset_failed() -> int:
                        apply_attempts = 0, agent_id = NULL
         WHERE apply_status = 'failed'
           OR (apply_status IS NOT NULL AND apply_status != 'applied'
-              AND apply_status != 'in_progress')
+              AND (apply_status IS NULL OR apply_status != 'in_progress')
     """)
     conn.commit()
     return cursor.rowcount
@@ -323,7 +324,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
 
     # Build claude command
     cmd = [
-        "claude",
+        "claude.cmd",
         "--model", model,
         "-p",
         "--mcp-config", str(mcp_config_path),

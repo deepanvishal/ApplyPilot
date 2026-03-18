@@ -172,7 +172,7 @@ class LLMClient:
 
         # 403 on Gemini compat = model not available on compat layer.
         # Raise a specific sentinel so chat() can switch to native API.
-        if resp.status_code == 403 and self._is_gemini:
+        if resp.status_code in (403, 404) and self._is_gemini:
             raise _GeminiCompatForbidden(resp)
 
         return self._handle_compat_response(resp)
