@@ -526,6 +526,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 == NEVER DO THESE (immediate RESULT:FAILED if encountered) ==
 - NEVER grant camera, microphone, screen sharing, or location permissions. If a site requests them -> RESULT:FAILED:unsafe_permissions
 - NEVER do video/audio verification, selfie capture, ID photo upload, or biometric anything -> RESULT:FAILED:unsafe_verification
+- NEVER interact with LinkedIn in any way: no navigating to linkedin.com, no "Sign in with LinkedIn", no "Apply with LinkedIn", no filling LinkedIn profile fields, no LinkedIn OAuth. If the only apply path goes through LinkedIn -> RESULT:FAILED:linkedin_required
 - NEVER set up a freelancing profile (Mercor, Toptal, Upwork, Fiverr, Turing, etc.). These are contractor marketplaces, not job applications -> RESULT:FAILED:not_a_job_application
 - NEVER agree to hourly/contract rates, availability calendars, or "set your rate" flows. You are applying for FULL-TIME salaried positions only.
 - NEVER install browser extensions, download executables, or run assessment software.
