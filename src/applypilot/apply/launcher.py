@@ -457,6 +457,19 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         job_log = config.LOG_DIR / f"claude_{ts}_w{worker_id}_{job.get('site', 'unknown')[:20]}.txt"
         job_log.write_text(output, encoding="utf-8")
 
+        # Extract and save actual apply URL if agent captured a redirect
+        for line in output.split("\n"):
+            if line.strip().startswith("APPLY_URL:"):
+                actual_url = line.split("APPLY_URL:", 1)[-1].strip()
+                if actual_url and actual_url != job.get("application_url"):
+                    conn = get_connection()
+                    conn.execute(
+                        "UPDATE jobs SET application_url = ? WHERE url = ?",
+                        (actual_url, job["url"])
+                    )
+                    conn.commit()
+                break
+
         if stats:
             cost = stats.get("cost_usd", 0)
             ws = get_state(worker_id)
