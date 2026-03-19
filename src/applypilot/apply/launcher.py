@@ -135,7 +135,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
-                  AND (application_url IS NOT NULL AND application_url NOT IN ('', 'None', 'none', 'nan') AND application_url NOT LIKE '%linkedin.com%')
+                  AND (application_url IS NOT NULL AND application_url NOT IN ('', 'None', 'none', 'nan'))
                   {site_clause}
                   {url_clauses}
                 ORDER BY fit_score DESC, url
