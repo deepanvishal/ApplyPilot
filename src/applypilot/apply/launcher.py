@@ -357,10 +357,13 @@ def run_job(job: dict, port: int, worker_id: int = 0,
 
     worker_log = config.LOG_DIR / f"worker-{worker_id}.log"
     ts_header = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    app_url = job.get('application_url')
+    if not app_url or app_url in ('None', 'nan', ''):
+        app_url = job['url']
     log_header = (
         f"\n{'=' * 60}\n"
         f"[{ts_header}] {job['title']} @ {job.get('site', '')}\n"
-        f"URL: {job.get('application_url') or job['url']}\n"
+        f"URL: {app_url}\n"
         f"Score: {job.get('fit_score', 'N/A')}/10\n"
         f"{'=' * 60}\n"
     )
