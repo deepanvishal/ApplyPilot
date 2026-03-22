@@ -19,7 +19,7 @@ if ENV_PATH.exists():
     for line in ENV_PATH.read_text().splitlines():
         if "=" in line and not line.startswith("#"):
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            os.environ[k.strip()] = v.strip()
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
