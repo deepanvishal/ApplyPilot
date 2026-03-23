@@ -453,5 +453,38 @@ def doctor() -> None:
     console.print()
 
 
+@app.command()
+def exploreworkday(
+    limit: int = typer.Argument(100, help="Number of Workday portals to explore."),
+    resume: bool = typer.Argument(True, help="True = resume last run. False = fresh start."),
+    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score to apply."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Discover and score but do not apply."),
+    model: str = typer.Option("haiku", "--model", help="Claude model for auto-apply."),
+) -> None:
+    """Explore Workday company portals: auth, search, score, and apply.
+
+    Examples:
+
+      applypilot exploreworkday 100 True            # resume last run
+
+      applypilot exploreworkday 100 False           # fresh start
+
+      applypilot exploreworkday 50 True --dry-run   # score only, no apply
+
+      applypilot exploreworkday 100 True --min-score 8
+    """
+    _bootstrap()
+    from applypilot.workday.pipeline import run_workday_pipeline
+    result = run_workday_pipeline(
+        limit=limit,
+        resume=resume,
+        min_score=min_score,
+        dry_run=dry_run,
+        model=model,
+    )
+    if result.get("errors"):
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()
