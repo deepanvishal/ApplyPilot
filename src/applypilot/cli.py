@@ -453,5 +453,30 @@ def doctor() -> None:
     console.print()
 
 
+@app.command()
+def exploreworkday(
+    limit: int = typer.Argument(100, help="Number of Workday portals to explore."),
+    resume: bool = typer.Argument(True, help="True = resume last run. False = fresh start."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
+) -> None:
+    """Discover jobs from Workday portals and insert into the jobs table.
+
+    Uses Workday's public JSON API — no browser, no login required.
+
+    Examples:
+
+        applypilot exploreworkday 100 True      # resume last run
+
+        applypilot exploreworkday 100 False     # fresh start
+
+        applypilot exploreworkday 2 False --dry-run
+    """
+    _bootstrap()
+    from applypilot.workday.pipeline import run_workday_pipeline
+    result = run_workday_pipeline(limit=limit, resume=resume, dry_run=dry_run)
+    if result.get("errors"):
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()
