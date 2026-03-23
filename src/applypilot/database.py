@@ -135,8 +135,40 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     """)
     conn.commit()
 
+    # Workday discovery tables
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workday_portals (
+            portal_url              TEXT PRIMARY KEY,
+            company_name            TEXT,
+            last_explored_at        TEXT,
+            last_run_id             INTEGER,
+            explore_status          TEXT,
+            total_jobs_discovered   INTEGER DEFAULT 0,
+            total_jobs_inserted     INTEGER DEFAULT 0,
+            created_at              TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workday_runs (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at              TEXT,
+            ended_at                TEXT,
+            mode                    TEXT,
+            portals_requested       INTEGER,
+            portals_completed       INTEGER DEFAULT 0,
+            portals_failed          INTEGER DEFAULT 0,
+            jobs_discovered         INTEGER DEFAULT 0,
+            jobs_inserted           INTEGER DEFAULT 0,
+            jobs_skipped_not_us     INTEGER DEFAULT 0,
+            status                  TEXT,
+            last_portal_url         TEXT
+        )
+    """)
+    conn.commit()
+
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
+    _ensure_workday_columns(conn)
 
     return conn
 
@@ -219,6 +251,30 @@ def ensure_columns(conn: sqlite3.Connection | None = None) -> list[str]:
         conn.commit()
 
     return added
+
+
+_WORKDAY_PORTALS_COLUMNS: dict[str, str] = {
+    "portal_url":            "TEXT PRIMARY KEY",
+    "company_name":          "TEXT",
+    "last_explored_at":      "TEXT",
+    "last_run_id":           "INTEGER",
+    "explore_status":        "TEXT",
+    "total_jobs_discovered": "INTEGER DEFAULT 0",
+    "total_jobs_inserted":   "INTEGER DEFAULT 0",
+    "created_at":            "TEXT",
+}
+
+
+def _ensure_workday_columns(conn: sqlite3.Connection) -> None:
+    """Add any missing columns to workday_portals (forward migration)."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(workday_portals)").fetchall()}
+    added = []
+    for col, dtype in _WORKDAY_PORTALS_COLUMNS.items():
+        if col not in existing and "PRIMARY KEY" not in dtype:
+            conn.execute(f"ALTER TABLE workday_portals ADD COLUMN {col} {dtype}")
+            added.append(col)
+    if added:
+        conn.commit()
 
 
 def get_stats(conn: sqlite3.Connection | None = None) -> dict:
