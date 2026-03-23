@@ -266,6 +266,11 @@ def run_workday_pipeline(
 
     _print_run_summary(portal_results, total_elapsed_s)
 
+    from applypilot.database import dedup_jobs
+    console.print("\n[bold]Running dedup_jobs...[/bold]")
+    dedup_result = dedup_jobs()
+    console.print(f"  {dedup_result['before']} → {dedup_result['after']} rows ({dedup_result['removed']} removed)")
+
     return {
         "run_id":         run_id,
         "portals":        len(portal_results),

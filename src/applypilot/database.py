@@ -264,17 +264,36 @@ _WORKDAY_PORTALS_COLUMNS: dict[str, str] = {
     "created_at":            "TEXT",
 }
 
+_WORKDAY_RUNS_COLUMNS: dict[str, str] = {
+    "id":                  "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "started_at":          "TEXT",
+    "ended_at":            "TEXT",
+    "mode":                "TEXT",
+    "portals_requested":   "INTEGER",
+    "portals_completed":   "INTEGER DEFAULT 0",
+    "portals_failed":      "INTEGER DEFAULT 0",
+    "jobs_discovered":     "INTEGER DEFAULT 0",
+    "jobs_inserted":       "INTEGER DEFAULT 0",
+    "jobs_skipped_not_us": "INTEGER DEFAULT 0",
+    "status":              "TEXT",
+    "last_portal_url":     "TEXT",
+}
+
 
 def _ensure_workday_columns(conn: sqlite3.Connection) -> None:
-    """Add any missing columns to workday_portals (forward migration)."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(workday_portals)").fetchall()}
-    added = []
-    for col, dtype in _WORKDAY_PORTALS_COLUMNS.items():
-        if col not in existing and "PRIMARY KEY" not in dtype:
-            conn.execute(f"ALTER TABLE workday_portals ADD COLUMN {col} {dtype}")
-            added.append(col)
-    if added:
-        conn.commit()
+    """Add any missing columns to workday_portals and workday_runs (forward migration)."""
+    for table, registry in (
+        ("workday_portals", _WORKDAY_PORTALS_COLUMNS),
+        ("workday_runs",    _WORKDAY_RUNS_COLUMNS),
+    ):
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        added = []
+        for col, dtype in registry.items():
+            if col not in existing and "PRIMARY KEY" not in dtype:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {dtype}")
+                added.append(col)
+        if added:
+            conn.commit()
 
 
 def get_stats(conn: sqlite3.Connection | None = None) -> dict:
@@ -480,3 +499,48 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
         columns = rows[0].keys()
         return [dict(zip(columns, row)) for row in rows]
     return []
+
+
+def dedup_jobs() -> dict:
+    """Deduplicate jobs table by application_url.
+
+    For each group of rows sharing the same application_url, keeps the one with
+    the most pipeline progress (description > score > resume > newest).
+    Rows with NULL/empty/invalid application_url are left untouched.
+
+    Returns:
+        Dict with keys: before, after, removed.
+    """
+    conn = get_connection()
+
+    before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+
+    conn.execute("""
+        DELETE FROM jobs
+        WHERE application_url IS NOT NULL
+        AND TRIM(application_url) != ''
+        AND application_url NOT IN ('None','nan')
+        AND url NOT IN (
+            SELECT url FROM (
+                SELECT url,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY application_url
+                           ORDER BY
+                               CASE WHEN full_description IS NOT NULL THEN 0 ELSE 1 END,
+                               CASE WHEN fit_score IS NOT NULL THEN 0 ELSE 1 END,
+                               CASE WHEN tailored_resume_path IS NOT NULL THEN 0 ELSE 1 END,
+                               discovered_at DESC
+                       ) as rn
+                FROM jobs
+                WHERE application_url IS NOT NULL
+                AND TRIM(application_url) != ''
+                AND application_url NOT IN ('None','nan')
+            ) ranked
+            WHERE rn = 1
+        )
+    """)
+    conn.commit()
+
+    after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    removed = before - after
+    return {"before": before, "after": after, "removed": removed}

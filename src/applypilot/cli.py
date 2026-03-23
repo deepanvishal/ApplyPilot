@@ -456,26 +456,35 @@ def doctor() -> None:
 @app.command()
 def exploreworkday(
     limit: int = typer.Argument(100, help="Number of Workday portals to explore."),
-    resume: bool = typer.Argument(True, help="True = resume last run. False = fresh start."),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run (default) or start fresh."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
 ) -> None:
-    """Discover jobs from Workday portals and insert into the jobs table.
-
-    Uses Workday's public JSON API — no browser, no login required.
+    """Discover jobs from Workday portals and insert into jobs table.
 
     Examples:
-
-        applypilot exploreworkday 100 True      # resume last run
-
-        applypilot exploreworkday 100 False     # fresh start
-
-        applypilot exploreworkday 2 False --dry-run
+        applypilot exploreworkday 100                        # resume + insert (default)
+        applypilot exploreworkday 100 --no-resume            # fresh start + insert
+        applypilot exploreworkday 100 --dry-run              # resume + no insert
+        applypilot exploreworkday 100 --no-resume --dry-run  # fresh start + no insert
     """
     _bootstrap()
     from applypilot.workday.pipeline import run_workday_pipeline
     result = run_workday_pipeline(limit=limit, resume=resume, dry_run=dry_run)
     if result.get("errors"):
         raise typer.Exit(code=1)
+
+
+@app.command()
+def dedup_jobs() -> None:
+    """Deduplicate jobs table by application_url. Keeps best row per job, ignores NULLs."""
+    _bootstrap()
+    from applypilot.database import dedup_jobs as _dedup_jobs
+
+    console.print("\n[bold]Deduplicating jobs table...[/bold]")
+    result = _dedup_jobs()
+    console.print(f"  Before:  {result['before']} rows")
+    console.print(f"  After:   {result['after']} rows")
+    console.print(f"  Removed: {result['removed']} duplicates\n")
 
 
 if __name__ == "__main__":
