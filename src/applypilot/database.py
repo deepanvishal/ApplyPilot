@@ -135,62 +135,6 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     """)
     conn.commit()
 
-    # Workday module tables
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS workday_portals (
-            portal_url              TEXT PRIMARY KEY,
-            company_name            TEXT,
-            auth_status             TEXT,
-            auth_email              TEXT,
-            auth_notes              TEXT,
-            last_explored_at        TEXT,
-            last_run_id             INTEGER,
-            explore_status          TEXT,
-            total_jobs_discovered   INTEGER DEFAULT 0,
-            total_jobs_applied      INTEGER DEFAULT 0,
-            created_at              TEXT
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS workday_runs (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at          TEXT,
-            ended_at            TEXT,
-            mode                TEXT,
-            portals_requested   INTEGER,
-            portals_completed   INTEGER DEFAULT 0,
-            portals_failed      INTEGER DEFAULT 0,
-            portals_skipped     INTEGER DEFAULT 0,
-            jobs_discovered     INTEGER DEFAULT 0,
-            jobs_applied        INTEGER DEFAULT 0,
-            status              TEXT,
-            last_portal_url     TEXT
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS workday_jobs (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id              INTEGER,
-            portal_url          TEXT,
-            job_url             TEXT,
-            title               TEXT,
-            location            TEXT,
-            posted_date         TEXT,
-            days_since_posted   INTEGER,
-            fit_score           INTEGER,
-            score_reasoning     TEXT,
-            apply_status        TEXT DEFAULT 'pending',
-            applied_at          TEXT,
-            error               TEXT,
-            discovered_at       TEXT,
-            UNIQUE(run_id, job_url)
-        )
-    """)
-
-    conn.commit()
-
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
 
