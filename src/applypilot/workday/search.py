@@ -203,16 +203,11 @@ def search_portal(portal_url: str, titles: list[str]) -> list[dict]:
             seen.add(job_url)
 
             # Location / country check
-            country = info.get("country", "") or ""
+            # country field is a Workday descriptor object: {"descriptor": "United States of America", "id": "..."}
+            country_raw = info.get("country") or {}
+            country = country_raw.get("descriptor", "") if isinstance(country_raw, dict) else (country_raw or "")
             location = info.get("locationsText", "") or info.get("location", "") or ""
-
-            if len(jobs) < 3:
-                print("DEBUG country:", repr(info.get("country")))
-                print("DEBUG jobRequisitionLocation:", repr(detail.get("jobRequisitionLocation")))
-                print("DEBUG location:", repr(info.get("location")))
-                print("DEBUG locationsText:", repr(info.get("locationsText")))
-
-            is_us = "United States" in country or not country
+            is_us = not country or "United States" in country
             apply_status = None if is_us else "Not in US"
 
             # Description

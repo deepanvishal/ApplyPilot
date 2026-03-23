@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import logging
+
 from applypilot.database import get_connection
+
+log = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -110,6 +114,8 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
     inserted = 0
     skipped_not_us = 0
 
+    _debug_printed = 0
+
     for job in jobs:
         if job.get("apply_status") == "Not in US":
             skipped_not_us += 1
@@ -117,7 +123,15 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
         if dry_run:
             continue
 
-        conn.execute("""
+        url = job.get("url")
+        title = job.get("title")
+        application_url = job.get("application_url")
+
+        if _debug_printed < 1:
+            log.info("DEBUG INSERT url=%r title=%r application_url=%r", url, title, application_url)
+            _debug_printed += 1
+
+        cur = conn.execute("""
             INSERT OR IGNORE INTO jobs (
                 url, title, company, location,
                 full_description, description,
@@ -125,24 +139,24 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
                 discovered_at, apply_status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            job.get("url"),
-            job.get("title"),
+            url,
+            title,
             job.get("company"),
             job.get("location"),
             job.get("full_description"),
             job.get("description"),
-            job.get("application_url"),
+            application_url,
             "workday",
             job.get("discovered_at"),
             job.get("apply_status"),
         ))
 
-        if conn.execute(
-            "SELECT changes()"
-        ).fetchone()[0]:
+        if cur.rowcount > 0:
             inserted += 1
+            log.info("Inserting job: %s — %s", title, application_url)
 
     if not dry_run:
         conn.commit()
 
+    log.info("insert_jobs done: inserted=%d skipped_not_us=%d total=%d", inserted, skipped_not_us, len(jobs))
     return inserted, skipped_not_us
