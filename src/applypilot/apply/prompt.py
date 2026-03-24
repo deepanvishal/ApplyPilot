@@ -493,7 +493,7 @@ def build_prompt(job: dict, tailored_resume: str,
 
     # Dry-run: override submit instruction
     if dry_run:
-        submit_instruction = "IMPORTANT: Do NOT click the final Submit/Apply button. Review the form, verify all fields, then output RESULT:APPLIED with a note that this was a dry run."
+        submit_instruction = "IMPORTANT: Do NOT click the final Submit/Apply button. Review the form, verify all fields, then output RESULT:APPLIED:{current_page_url} with a note that this was a dry run."
     else:
         submit_instruction = "BEFORE clicking Submit/Apply, take a snapshot and review EVERY field on the page. Verify all data matches the APPLICANT PROFILE and TAILORED RESUME -- name, email, phone, location, work auth, resume uploaded, cover letter if applicable. If anything is wrong or missing, fix it FIRST. Only click Submit after confirming everything is correct."
 
@@ -539,7 +539,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 - NEVER send unsolicited emails to recruiters or hiring managers. Only send email if the job posting explicitly says "email your resume to X".
 - NEVER unsubscribe from job alerts or recruiting emails.
 - NEVER modify or delete any existing application data.
-- If you land on an application status page showing a previous application -> output RESULT:APPLIED immediately. Do not interact with the page.
+- If you land on an application status page showing a previous application -> run browser_evaluate with window.location.href, then output RESULT:APPLIED:{{current_page_url}} immediately. Do not interact with the page.
 
 {location_check}
 
@@ -554,7 +554,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 3. Read the page for any location/relocation questions. Answer YES to all of them — candidate is willing to relocate.
 4. Find and click the Apply button. If email-only (page says "email resume to X"):
    - send_email with subject "Application for {job['title']} -- {display_name}", body = 2-3 sentence pitch + contact info, attach resume PDF: ["{pdf_path}"]
-   - Output RESULT:APPLIED. Done.
+   - Output RESULT:APPLIED:{job.get('application_url') or job.get('url', '')}. Done.
    After clicking Apply: browser_snapshot. Run CAPTCHA DETECT -- many sites trigger CAPTCHAs right after the Apply click. If found, solve before continuing.
 5. Login wall?
    5a. FIRST: check the URL. If you landed on {', '.join(blocked_sso)}, or any SSO/OAuth page -> STOP. Output RESULT:FAILED:sso_required. Do NOT try to sign in to Google/Microsoft/SSO.
@@ -581,7 +581,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 12. Output your result.
 
 == RESULT CODES (output EXACTLY one) ==
-RESULT:APPLIED -- submitted successfully OR found existing application for this job
+RESULT:APPLIED:{final_application_url} -- submitted successfully OR found existing application for this job. Replace {final_application_url} with the actual URL from browser_evaluate(window.location.href) at the time of submission/detection.
 RESULT:EXPIRED -- job closed or no longer accepting applications
 RESULT:CAPTCHA -- blocked by unsolvable captcha
 RESULT:LOGIN_ISSUE -- could not sign in or create account
