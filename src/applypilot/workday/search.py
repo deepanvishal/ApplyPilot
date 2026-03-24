@@ -10,6 +10,7 @@ No authentication or browser is needed for discovery.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from urllib.parse import urlparse
@@ -28,6 +29,11 @@ _SESSION.headers.update({
         "Chrome/124.0.0.0 Safari/537.36"
     ),
 })
+
+proxy = os.environ.get("ROTATING_PROXY")
+if proxy:
+    _SESSION.proxies.update({"http": proxy, "https": proxy})
+    log.info("Workday search: rotating proxy enabled")
 
 _PAGE_SIZE = 20
 _REQUEST_TIMEOUT = 15  # seconds
