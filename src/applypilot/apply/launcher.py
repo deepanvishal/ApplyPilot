@@ -559,36 +559,70 @@ def _is_permanent_failure(result: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Shared limit counter for multi-worker mode
+# ---------------------------------------------------------------------------
+
+class _SharedLimit:
+    """Thread-safe global job counter shared across all workers.
+
+    Workers call acquire() before each job. Returns False when the global
+    limit is reached, so any idle worker stops immediately rather than
+    waiting for its pre-assigned quota to run out.
+    """
+    def __init__(self, limit: int) -> None:
+        self._remaining = limit
+        self._lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        with self._lock:
+            if self._remaining > 0:
+                self._remaining -= 1
+                return True
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Worker loop
 # ---------------------------------------------------------------------------
 
 def worker_loop(worker_id: int = 0, limit: int = 1,
                 target_url: str | None = None,
                 min_score: int = 7, headless: bool = False,
-                model: str = "sonnet", dry_run: bool = False) -> tuple[int, int]:
+                model: str = "sonnet", dry_run: bool = False,
+                shared_limit: _SharedLimit | None = None) -> tuple[int, int]:
     """Run jobs sequentially until limit is reached or queue is empty.
 
     Args:
         worker_id: Numeric worker identifier.
-        limit: Max jobs to process (0 = continuous).
+        limit: Max jobs to process (0 = continuous). Ignored when shared_limit provided.
         target_url: Apply to a specific URL.
         min_score: Minimum fit_score threshold.
         headless: Run Chrome headless.
         model: Claude model name.
         dry_run: Don't click Submit.
+        shared_limit: Shared counter across workers. When provided, workers pull
+            jobs until the global total is exhausted (no pre-division).
 
     Returns:
         Tuple of (applied_count, failed_count).
     """
     applied = 0
     failed = 0
-    continuous = limit == 0
+    continuous = limit == 0 and shared_limit is None
     jobs_done = 0
     empty_polls = 0
     port = BASE_CDP_PORT + worker_id
 
+    _limit_reached = False
+
     while not _stop_event.is_set():
-        if not continuous and jobs_done >= limit:
+        if shared_limit is not None:
+            # Shared counter: try to claim a slot before acquiring from DB
+            if not shared_limit.acquire():
+                _limit_reached = True
+                break
+        elif not continuous and jobs_done >= limit:
+            _limit_reached = True
             break
 
         update_state(worker_id, status="idle", job_title="", company="",
@@ -600,6 +634,11 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             if not continuous:
                 add_event(f"[W{worker_id}] Queue empty")
                 update_state(worker_id, status="done", last_action="queue empty")
+                break
+            # Queue is empty but we already consumed a shared_limit slot — put it back
+            if shared_limit is not None:
+                with shared_limit._lock:
+                    shared_limit._remaining += 1
                 break
             empty_polls += 1
             update_state(worker_id, status="idle",
@@ -624,6 +663,10 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             if result == "skipped":
                 release_lock(job["url"])
                 add_event(f"[W{worker_id}] Skipped: {job['title'][:30]}")
+                # Return the slot so another job can be attempted
+                if shared_limit is not None:
+                    with shared_limit._lock:
+                        shared_limit._remaining += 1
                 continue
             elif result == "applied":
                 mark_result(job["url"], "applied", duration_ms=duration_ms)
@@ -659,7 +702,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
         if target_url:
             break
 
-    update_state(worker_id, status="done", last_action="finished")
+    last_action = "limit reached" if _limit_reached and jobs_done == 0 else "finished"
+    update_state(worker_id, status="done", last_action=last_action)
     return applied, failed
 
 
@@ -756,14 +800,8 @@ def main(limit: int = 1, target_url: str | None = None,
                     dry_run=dry_run,
                 )
             else:
-                # Multi-worker — distribute limit across workers
-                if effective_limit:
-                    base = effective_limit // workers
-                    extra = effective_limit % workers
-                    limits = [base + (1 if i < extra else 0)
-                              for i in range(workers)]
-                else:
-                    limits = [0] * workers  # continuous mode
+                # Multi-worker — shared counter so any free worker picks the next job
+                shared = _SharedLimit(effective_limit) if effective_limit else None
 
                 with ThreadPoolExecutor(max_workers=workers,
                                         thread_name_prefix="apply-worker") as executor:
@@ -771,12 +809,13 @@ def main(limit: int = 1, target_url: str | None = None,
                         executor.submit(
                             worker_loop,
                             worker_id=i,
-                            limit=limits[i],
+                            limit=0 if not effective_limit else effective_limit,
                             target_url=target_url,
                             min_score=min_score,
                             headless=headless,
                             model=model,
                             dry_run=dry_run,
+                            shared_limit=shared,
                         ): i
                         for i in range(workers)
                     }

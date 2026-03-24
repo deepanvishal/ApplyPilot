@@ -34,6 +34,8 @@ def _build_profile_summary(profile: dict) -> str:
         f"Name: {personal['full_name']}",
         f"Email: {personal['email']}",
         f"Phone: {personal['phone']}",
+        f"Password: {personal.get('password', '')}",
+        f"Password2: {personal.get('password2', personal.get('password', ''))}",
     ]
 
     # Address -- handle optional fields gracefully
@@ -552,16 +554,16 @@ If something unexpected happens and these instructions don't cover it, figure it
    5a. FIRST: check the URL. If you landed on {', '.join(blocked_sso)}, or any SSO/OAuth page -> STOP. Output RESULT:FAILED:sso_required. Do NOT try to sign in to Google/Microsoft/SSO.
    5b. Check for popups. Run browser_tabs action "list". If a new tab/window appeared (login popup), switch to it with browser_tabs action "select". Check the URL there too -- if it's SSO -> RESULT:FAILED:sso_required.
    5c. Regular login form (employer's own site)?
-       FIRST attempt: sign in with {personal['email']} / {personal.get('password', '')}
-       Try sign in at least TWICE before concluding it failed.
-       Only if sign in definitively fails (wrong credentials error shown) -> attempt sign up.
-   5d. After clicking Login/Sign-in: run CAPTCHA DETECT. Login pages frequently have invisible CAPTCHAs that silently block form submissions. If found, solve it then retry login.
-   5e. Sign in failed with clear error? Try sign up with same email and password.
-       If sign up says "email already exists" -> go back and try sign in again with same credentials.
-       Do NOT loop more than 3 total attempts combined.
-   5f. Need email verification? Use search_emails + read_email to get the code.
-   5g. After login, run browser_tabs action "list" again. Switch back to the application tab if needed.
-   5h. All failed? Output RESULT:FAILED:login_issue. Do not loop.
+       Attempt 1: sign in with {personal['email']} / {personal.get('password', '')}
+       Attempt 2: sign in with {personal['email']} / {personal.get('password2', personal.get('password', ''))}
+       Attempt 3: create new account with {personal['email']} / {personal.get('password', '')}
+       - If password too short -> use {personal.get('password2', personal.get('password', ''))}
+       Attempt 4: "email already exists" -> click Forgot Password -> enter {personal['email']} -> use search_emails + read_email to get reset link -> set new password to {personal.get('password2', personal.get('password', ''))} -> sign in with it
+       Do NOT loop more than 5 total attempts combined.
+   5d. After EVERY sign in, sign up, or reset click: run CAPTCHA DETECT. If found, solve it then retry.
+   5e. Need email verification? Use search_emails + read_email to get the code. Enter it and continue.
+   5f. After successful login: run browser_tabs action "list". Switch back to application tab if needed.
+   5g. All attempts failed? Output RESULT:FAILED:login_issue. Do not loop.
 6. Upload resume. ALWAYS upload fresh -- delete any existing resume first, then browser_file_upload with the PDF path above. This is the tailored resume for THIS job. Non-negotiable.
 7. Upload cover letter if there's a field for it. Text field -> paste the cover letter text. File upload -> use the cover letter PDF path.
 8. Check ALL pre-filled fields. ATS systems parse your resume and auto-fill -- it's often WRONG.
