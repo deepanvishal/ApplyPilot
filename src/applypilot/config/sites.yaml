@@ -18,6 +18,7 @@ blocked:
     - "AccentureCareers"
     - "Workopolis"
   url_patterns:
+    - "%amazon.jobs%"
     - "%glassdoor%"
     - "%google.com/about/careers%"
     - "%google.jobs%"
@@ -179,3 +180,4 @@ sites:
   - name: "Otta"
     url: "https://otta.com/jobs/all?title=software+engineer&remote=true"
     type: search
+
