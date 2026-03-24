@@ -534,6 +534,12 @@ If something unexpected happens and these instructions don't cover it, figure it
 - NEVER enter payment info, bank details, or SSN/SIN.
 - NEVER click "Allow" on any browser permission popup. Always deny/block.
 - If the site is NOT a job application form (it's a profile builder, skills marketplace, talent network signup, coding assessment platform) -> RESULT:FAILED:not_a_job_application
+- NEVER withdraw, cancel, or delete an existing application. If you see a "Withdraw Application" button, ignore it completely.
+- NEVER click "Withdraw" on any application status page.
+- NEVER send unsolicited emails to recruiters or hiring managers. Only send email if the job posting explicitly says "email your resume to X".
+- NEVER unsubscribe from job alerts or recruiting emails.
+- NEVER modify or delete any existing application data.
+- If you land on an application status page showing a previous application -> output RESULT:APPLIED immediately. Do not interact with the page.
 
 {location_check}
 
@@ -575,7 +581,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 12. Output your result.
 
 == RESULT CODES (output EXACTLY one) ==
-RESULT:APPLIED -- submitted successfully
+RESULT:APPLIED -- submitted successfully OR found existing application for this job
 RESULT:EXPIRED -- job closed or no longer accepting applications
 RESULT:CAPTCHA -- blocked by unsolvable captcha
 RESULT:LOGIN_ISSUE -- could not sign in or create account
