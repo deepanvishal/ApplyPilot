@@ -232,7 +232,7 @@ def apply(
 
     from applypilot.apply.launcher import main as apply_main
 
-    effective_limit = limit if limit is not None else (0 if continuous else 1)
+    effective_limit = limit if limit is not None else 0
 
     console.print("\n[bold blue]Launching Auto-Apply[/bold blue]")
     console.print(f"  Limit:    {'unlimited' if continuous else effective_limit}")
