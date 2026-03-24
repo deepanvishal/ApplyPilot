@@ -487,5 +487,29 @@ def dedup_jobs() -> None:
     console.print(f"  Removed: {result['removed']} duplicates\n")
 
 
+@app.command()
+def exploregreenhouse(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Enrich but do not update DB."),
+) -> None:
+    """Enrich Greenhouse jobs with full JD. Removes non-US jobs.
+
+    Examples:
+        applypilot exploregreenhouse              # enrich + delete non-US
+        applypilot exploregreenhouse --dry-run    # preview only
+    """
+    _bootstrap()
+    from applypilot.greenhouse.enricher import enrich_greenhouse_jobs
+
+    console.print("\n[bold]Greenhouse Enrichment[/bold]")
+    result = enrich_greenhouse_jobs(dry_run=dry_run)
+    console.print(f"  Total:            {result['total']}")
+    console.print(f"  Enriched:         {result['enriched']}")
+    console.print(f"  Deleted (not US): {result['deleted_not_us']}")
+    console.print(f"  Skipped (applied):{result['skipped_applied']}")
+    console.print(f"  Failed:           {result['failed']}")
+    if dry_run:
+        console.print("\n  [yellow]DRY RUN — no changes made[/yellow]")
+
+
 if __name__ == "__main__":
     app()

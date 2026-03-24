@@ -501,12 +501,38 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
     return []
 
 
+_DEDUP_CANDIDATES = """
+    SELECT url FROM (
+        SELECT url,
+               ROW_NUMBER() OVER (
+                   PARTITION BY application_url
+                   ORDER BY
+                       CASE WHEN applied_at IS NOT NULL THEN 0 ELSE 1 END,
+                       CASE WHEN apply_status = 'applied' THEN 0 ELSE 1 END,
+                       CASE WHEN tailored_resume_path IS NOT NULL THEN 0 ELSE 1 END,
+                       CASE WHEN cover_letter_path IS NOT NULL THEN 0 ELSE 1 END,
+                       CASE WHEN fit_score IS NOT NULL THEN 0 ELSE 1 END,
+                       CASE WHEN full_description IS NOT NULL THEN 0 ELSE 1 END,
+                       discovered_at DESC
+               ) as rn
+        FROM jobs
+        WHERE application_url IS NOT NULL
+        AND TRIM(application_url) != ''
+        AND application_url NOT IN ('None','nan')
+    ) ranked
+    WHERE rn != 1
+"""
+
+
 def dedup_jobs() -> dict:
     """Deduplicate jobs table by application_url.
 
     For each group of rows sharing the same application_url, keeps the one with
-    the most pipeline progress (description > score > resume > newest).
+    the most pipeline progress. Applied jobs are always kept.
     Rows with NULL/empty/invalid application_url are left untouched.
+
+    Raises:
+        Exception: If the dedup would delete any applied jobs (safety check).
 
     Returns:
         Dict with keys: before, after, removed.
@@ -515,29 +541,24 @@ def dedup_jobs() -> dict:
 
     before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
-    conn.execute("""
+    # Safety check: abort if any applied job would be deleted
+    would_delete_applied = conn.execute(f"""
+        SELECT COUNT(*) FROM jobs
+        WHERE apply_status = 'applied'
+        AND url IN ({_DEDUP_CANDIDATES})
+    """).fetchone()[0]
+
+    if would_delete_applied > 0:
+        raise Exception(
+            f"SAFETY: dedup would delete {would_delete_applied} applied job(s). Aborting."
+        )
+
+    conn.execute(f"""
         DELETE FROM jobs
         WHERE application_url IS NOT NULL
         AND TRIM(application_url) != ''
         AND application_url NOT IN ('None','nan')
-        AND url NOT IN (
-            SELECT url FROM (
-                SELECT url,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY application_url
-                           ORDER BY
-                               CASE WHEN full_description IS NOT NULL THEN 0 ELSE 1 END,
-                               CASE WHEN fit_score IS NOT NULL THEN 0 ELSE 1 END,
-                               CASE WHEN tailored_resume_path IS NOT NULL THEN 0 ELSE 1 END,
-                               discovered_at DESC
-                       ) as rn
-                FROM jobs
-                WHERE application_url IS NOT NULL
-                AND TRIM(application_url) != ''
-                AND application_url NOT IN ('None','nan')
-            ) ranked
-            WHERE rn = 1
-        )
+        AND url IN ({_DEDUP_CANDIDATES})
     """)
     conn.commit()
 
