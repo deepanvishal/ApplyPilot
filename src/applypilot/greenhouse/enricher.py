@@ -125,18 +125,25 @@ def fetch_job_detail(company: str, job_id: str) -> dict | None:
         return None
 
 
-def enrich_greenhouse_jobs(dry_run: bool = False) -> dict:
+def enrich_greenhouse_jobs(dry_run: bool = False, limit: int = 0) -> dict:
     conn = get_connection()
 
     rows = conn.execute("""
-        SELECT url, application_url, apply_status, title
+        SELECT url, title, application_url, apply_status
         FROM jobs
         WHERE (
             application_url LIKE '%greenhouse.io%'
             OR application_url LIKE '%grnh.se%'
         )
-        AND full_description IS NULL
+        AND application_url IS NOT NULL
+        AND TRIM(application_url) != ''
+        AND application_url NOT IN ('None', 'nan')
     """).fetchall()
+
+    log.info("Found %d Greenhouse jobs to process", len(rows))
+
+    if limit > 0:
+        rows = rows[:limit]
 
     total = len(rows)
     skipped_applied = 0

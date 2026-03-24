@@ -489,26 +489,44 @@ def dedup_jobs() -> None:
 
 @app.command()
 def exploregreenhouse(
-    dry_run: bool = typer.Option(False, "--dry-run", help="Enrich but do not update DB."),
+    limit: int = typer.Argument(100, help="Number of Greenhouse companies to explore."),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run or fresh start."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
 ) -> None:
-    """Enrich Greenhouse jobs with full JD. Removes non-US jobs.
+    """Discover jobs from Greenhouse company portals and insert into jobs table.
 
     Examples:
-        applypilot exploregreenhouse              # enrich + delete non-US
+        applypilot exploregreenhouse              # resume + insert (default)
+        applypilot exploregreenhouse --no-resume  # fresh start
         applypilot exploregreenhouse --dry-run    # preview only
+        applypilot exploregreenhouse 50           # limit to 50 companies
     """
     _bootstrap()
-    from applypilot.greenhouse.enricher import enrich_greenhouse_jobs
+    from applypilot.greenhouse.pipeline import run_greenhouse_pipeline
+    result = run_greenhouse_pipeline(limit=limit, resume=resume, dry_run=dry_run)
+    if result.get("errors"):
+        raise typer.Exit(code=1)
 
-    console.print("\n[bold]Greenhouse Enrichment[/bold]")
-    result = enrich_greenhouse_jobs(dry_run=dry_run)
-    console.print(f"  Total:            {result['total']}")
-    console.print(f"  Enriched:         {result['enriched']}")
-    console.print(f"  Deleted (not US): {result['deleted_not_us']}")
-    console.print(f"  Skipped (applied):{result['skipped_applied']}")
-    console.print(f"  Failed:           {result['failed']}")
-    if dry_run:
-        console.print("\n  [yellow]DRY RUN — no changes made[/yellow]")
+
+@app.command()
+def exploreashby(
+    limit: int = typer.Argument(100, help="Number of Ashby companies to explore."),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run or fresh start."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
+) -> None:
+    """Discover jobs from Ashby company portals and insert into jobs table.
+
+    Examples:
+        applypilot exploreashby              # resume + insert (default)
+        applypilot exploreashby --no-resume  # fresh start
+        applypilot exploreashby --dry-run    # preview only
+        applypilot exploreashby 50           # limit to 50 companies
+    """
+    _bootstrap()
+    from applypilot.ashby.pipeline import run_ashby_pipeline
+    result = run_ashby_pipeline(limit=limit, resume=resume, dry_run=dry_run)
+    if result.get("errors"):
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
