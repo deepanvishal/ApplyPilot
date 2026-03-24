@@ -166,6 +166,68 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     """)
     conn.commit()
 
+    # Greenhouse discovery tables
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS greenhouse_companies (
+            company_name            TEXT PRIMARY KEY,
+            last_explored_at        TEXT,
+            last_run_id             INTEGER,
+            explore_status          TEXT,
+            total_jobs_discovered   INTEGER DEFAULT 0,
+            total_jobs_inserted     INTEGER DEFAULT 0,
+            created_at              TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS greenhouse_runs (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at              TEXT,
+            ended_at                TEXT,
+            mode                    TEXT,
+            companies_requested     INTEGER,
+            companies_completed     INTEGER DEFAULT 0,
+            companies_failed        INTEGER DEFAULT 0,
+            jobs_discovered         INTEGER DEFAULT 0,
+            jobs_inserted           INTEGER DEFAULT 0,
+            jobs_skipped_not_us     INTEGER DEFAULT 0,
+            jobs_skipped_title      INTEGER DEFAULT 0,
+            status                  TEXT,
+            last_company            TEXT
+        )
+    """)
+    conn.commit()
+
+    # Ashby discovery tables
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ashby_companies (
+            company_name            TEXT PRIMARY KEY,
+            last_explored_at        TEXT,
+            last_run_id             INTEGER,
+            explore_status          TEXT,
+            total_jobs_discovered   INTEGER DEFAULT 0,
+            total_jobs_inserted     INTEGER DEFAULT 0,
+            created_at              TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ashby_runs (
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at              TEXT,
+            ended_at                TEXT,
+            mode                    TEXT,
+            companies_requested     INTEGER,
+            companies_completed     INTEGER DEFAULT 0,
+            companies_failed        INTEGER DEFAULT 0,
+            jobs_discovered         INTEGER DEFAULT 0,
+            jobs_inserted           INTEGER DEFAULT 0,
+            jobs_skipped_not_us     INTEGER DEFAULT 0,
+            jobs_skipped_title      INTEGER DEFAULT 0,
+            status                  TEXT,
+            last_company            TEXT
+        )
+    """)
+    conn.commit()
+
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
     _ensure_workday_columns(conn)
