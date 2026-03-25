@@ -581,7 +581,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 12. Output your result.
 
 == RESULT CODES (output EXACTLY one) ==
-RESULT:APPLIED:{final_application_url} -- submitted successfully OR found existing application for this job. Replace {final_application_url} with the actual URL from browser_evaluate(window.location.href) at the time of submission/detection.
+RESULT:APPLIED:{{final_application_url}} -- submitted successfully OR found existing application for this job. Replace {{final_application_url}} with the actual URL from browser_evaluate(window.location.href) at the time of submission/detection.
 RESULT:EXPIRED -- job closed or no longer accepting applications
 RESULT:CAPTCHA -- blocked by unsolvable captcha
 RESULT:LOGIN_ISSUE -- could not sign in or create account

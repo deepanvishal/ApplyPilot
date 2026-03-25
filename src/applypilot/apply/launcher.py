@@ -673,6 +673,23 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
 
         empty_polls = 0
 
+        # Block domains where the agent causes problems
+        app_url = job.get("application_url") or job.get("url") or ""
+        _job_url = job.get("url", "")
+        _blocked_domain = None
+        if "amazon.jobs" in app_url.lower() or "amazon.jobs" in _job_url.lower():
+            _blocked_domain = "Amazon"
+        elif "cvshealth.com" in app_url.lower() or "cvshealth.com" in _job_url.lower():
+            _blocked_domain = "CVSHealth"
+        elif "jobs.intuit.com" in app_url.lower() or "jobs.intuit.com" in _job_url.lower():
+            _blocked_domain = "Intuit"
+        if _blocked_domain:
+            mark_result(job["url"], "failed", "blocked_domain", permanent=True)
+            add_event(f"[W{worker_id}] BLOCKED {_blocked_domain}: {job['title'][:30]}")
+            failed += 1
+            update_state(worker_id, jobs_failed=failed, jobs_done=applied + failed)
+            continue
+
         chrome_proc = None
         try:
             add_event(f"[W{worker_id}] Launching Chrome...")
@@ -680,6 +697,12 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
 
             result, duration_ms, final_url = run_job(job, port=port, worker_id=worker_id,
                                                       model=model, dry_run=dry_run)
+
+            if duration_ms is not None and duration_ms > 300_000 and not result.startswith("failed:timeout"):
+                elapsed_s = duration_ms // 1000
+                add_event(f"[W{worker_id}] TIMEOUT: job took {elapsed_s}s")
+                result = "failed:timeout"
+                final_url = None
 
             if result == "skipped":
                 release_lock(job["url"])
