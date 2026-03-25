@@ -454,7 +454,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     text_parts.append(line)
                     lf.write(line + "\n")
 
-        proc.wait(timeout=300)
+        proc.wait(timeout=600)
         returncode = proc.returncode
         proc = None
 
@@ -681,7 +681,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             _blocked_domain = "Amazon"
         elif "cvshealth.com" in app_url.lower() or "cvshealth.com" in _job_url.lower():
             _blocked_domain = "CVSHealth"
-        elif "jobs.intuit.com" in app_url.lower() or "jobs.intuit.com" in _job_url.lower():
+        elif ("jobs.intuit.com" in app_url.lower() or "jobs.intuit.com" in _job_url.lower()
+              or "intuit.avature.net" in app_url.lower() or "intuit.avature.net" in _job_url.lower()):
             _blocked_domain = "Intuit"
         if _blocked_domain:
             mark_result(job["url"], "failed", "blocked_domain", permanent=True)
@@ -698,7 +699,7 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             result, duration_ms, final_url = run_job(job, port=port, worker_id=worker_id,
                                                       model=model, dry_run=dry_run)
 
-            if duration_ms is not None and duration_ms > 300_000 and not result.startswith("failed:timeout"):
+            if duration_ms is not None and duration_ms > 600_000 and not result.startswith("failed:timeout"):
                 elapsed_s = duration_ms // 1000
                 add_event(f"[W{worker_id}] TIMEOUT: job took {elapsed_s}s")
                 result = "failed:timeout"
