@@ -301,6 +301,28 @@ def reset_failed() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Inactivity watchdog
+# ---------------------------------------------------------------------------
+
+def _watchdog(worker_id: int, proc: subprocess.Popen,
+               inactivity_limit: int = 300) -> None:
+    """Kill the Claude process if last_action hasn't changed for inactivity_limit seconds."""
+    last_action = None
+    last_change = time.time()
+    while proc.poll() is None:
+        ws = get_state(worker_id)
+        current_action = ws.last_action if ws else None
+        if current_action != last_action:
+            last_action = current_action
+            last_change = time.time()
+        if time.time() - last_change > inactivity_limit:
+            add_event(f"[W{worker_id}] INACTIVITY TIMEOUT — no progress for 5 min")
+            _kill_process_tree(proc.pid)
+            break
+        time.sleep(10)
+
+
+# ---------------------------------------------------------------------------
 # Per-job execution
 # ---------------------------------------------------------------------------
 
@@ -396,6 +418,13 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         with _claude_lock:
             _claude_procs[worker_id] = proc
 
+        watchdog = threading.Thread(
+            target=_watchdog,
+            args=(worker_id, proc),
+            daemon=True,
+        )
+        watchdog.start()
+
         proc.stdin.write(agent_prompt)
         proc.stdin.close()
 
@@ -454,7 +483,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     text_parts.append(line)
                     lf.write(line + "\n")
 
-        proc.wait(timeout=600)
+        proc.wait()
         returncode = proc.returncode
         proc = None
 
@@ -535,12 +564,6 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         update_state(worker_id, status="failed", last_action=f"no result ({elapsed}s)")
         return "failed:no_result_line", duration_ms, None
 
-    except subprocess.TimeoutExpired:
-        duration_ms = int((time.time() - start) * 1000)
-        elapsed = int(time.time() - start)
-        add_event(f"[W{worker_id}] TIMEOUT ({elapsed}s)")
-        update_state(worker_id, status="failed", last_action=f"TIMEOUT ({elapsed}s)")
-        return "failed:timeout", duration_ms, None
     except Exception as e:
         duration_ms = int((time.time() - start) * 1000)
         add_event(f"[W{worker_id}] ERROR: {str(e)[:40]}")
@@ -698,12 +721,6 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
 
             result, duration_ms, final_url = run_job(job, port=port, worker_id=worker_id,
                                                       model=model, dry_run=dry_run)
-
-            if duration_ms is not None and duration_ms > 600_000 and not result.startswith("failed:timeout"):
-                elapsed_s = duration_ms // 1000
-                add_event(f"[W{worker_id}] TIMEOUT: job took {elapsed_s}s")
-                result = "failed:timeout"
-                final_url = None
 
             if result == "skipped":
                 release_lock(job["url"])
