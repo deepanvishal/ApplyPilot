@@ -590,11 +590,8 @@ def dedup_jobs() -> dict:
     """Deduplicate jobs table by application_url.
 
     For each group of rows sharing the same application_url, keeps the one with
-    the most pipeline progress. Applied jobs are always kept.
+    the most pipeline progress. Applied jobs are never touched.
     Rows with NULL/empty/invalid application_url are left untouched.
-
-    Raises:
-        Exception: If the dedup would delete any applied jobs (safety check).
 
     Returns:
         Dict with keys: before, after, removed.
@@ -603,23 +600,12 @@ def dedup_jobs() -> dict:
 
     before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
-    # Safety check: abort if any applied job would be deleted
-    would_delete_applied = conn.execute(f"""
-        SELECT COUNT(*) FROM jobs
-        WHERE apply_status = 'applied'
-        AND url IN ({_DEDUP_CANDIDATES})
-    """).fetchone()[0]
-
-    if would_delete_applied > 0:
-        raise Exception(
-            f"SAFETY: dedup would delete {would_delete_applied} applied job(s). Aborting."
-        )
-
     conn.execute(f"""
         DELETE FROM jobs
         WHERE application_url IS NOT NULL
         AND TRIM(application_url) != ''
         AND application_url NOT IN ('None','nan')
+        AND (apply_status IS NULL OR apply_status != 'applied')
         AND url IN ({_DEDUP_CANDIDATES})
     """)
     conn.commit()
