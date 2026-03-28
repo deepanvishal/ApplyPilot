@@ -99,7 +99,7 @@ def _print_run_summary(company_results: list[dict], total_elapsed_s: float) -> N
 # ---------------------------------------------------------------------------
 
 def run_ashby_pipeline(
-    limit: int = 100,
+    limit: int = 0,
     resume: bool = True,
     dry_run: bool = False,
 ) -> dict:

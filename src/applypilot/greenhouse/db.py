@@ -39,13 +39,19 @@ def update_company(company_name: str, **kwargs) -> None:
 
 
 def get_companies_for_run(limit: int) -> list[str]:
-    """Return up to limit companies ordered by last_explored_at ASC NULLS FIRST."""
+    """Return companies ordered by last_explored_at ASC NULLS FIRST. limit=0 means all."""
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT company_name FROM greenhouse_companies
-        ORDER BY last_explored_at ASC NULLS FIRST
-        LIMIT ?
-    """, (limit,)).fetchall()
+    if limit > 0:
+        rows = conn.execute("""
+            SELECT company_name FROM greenhouse_companies
+            ORDER BY last_explored_at ASC NULLS FIRST
+            LIMIT ?
+        """, (limit,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT company_name FROM greenhouse_companies
+            ORDER BY last_explored_at ASC NULLS FIRST
+        """).fetchall()
     return [row[0] for row in rows]
 
 

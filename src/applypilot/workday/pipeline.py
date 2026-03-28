@@ -105,7 +105,7 @@ def _print_run_summary(portal_results: list[dict], total_elapsed_s: float) -> No
 # ---------------------------------------------------------------------------
 
 def run_workday_pipeline(
-    limit: int = 100,
+    limit: int = 0,
     resume: bool = True,
     dry_run: bool = False,
 ) -> dict:
