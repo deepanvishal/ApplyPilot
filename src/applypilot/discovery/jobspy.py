@@ -311,7 +311,7 @@ def search_jobs(
     sites: list[str] | None = None,
     remote_only: bool = False,
     results_per_site: int = 50,
-    hours_old: int = 72,
+    hours_old: int = 168,
     proxy: str | None = None,
     country_indeed: str = "usa",
 ) -> dict:
@@ -379,7 +379,7 @@ def _full_crawl(
     locations: list[str] | None = None,
     sites: list[str] | None = None,
     results_per_site: int = 100,
-    hours_old: int = 72,
+    hours_old: int = 168,
     proxy: str | None = None,
     max_retries: int = 2,
 ) -> dict:
@@ -479,7 +479,7 @@ def run_discovery(cfg: dict | None = None) -> dict:
     proxy = cfg.get("proxy")
     sites = cfg.get("sites") or cfg.get("boards")
     results_per_site = cfg.get("defaults", {}).get("results_per_site", 100)
-    hours_old = cfg.get("defaults", {}).get("hours_old", 72)
+    hours_old = cfg.get("defaults", {}).get("hours_old", 168)
     tiers = cfg.get("tiers")
     locations = cfg.get("location_labels")
 

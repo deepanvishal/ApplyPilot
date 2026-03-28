@@ -529,5 +529,48 @@ def exploreashby(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def genie_get_me_jobs(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only, no DB inserts."),
+) -> None:
+    """Run all ATS discovery modules sequentially: Workday → Greenhouse → Ashby.
+
+    One command to populate all jobs from all known ATS portals.
+    """
+    from rich.console import Console
+    from applypilot.workday.pipeline import run_workday_pipeline
+    from applypilot.greenhouse.pipeline import run_greenhouse_pipeline
+    from applypilot.ashby.pipeline import run_ashby_pipeline
+
+    _bootstrap()
+    console = Console()
+
+    total_inserted = 0
+
+    console.print("\n[bold cyan]✨ Genie Get Me Jobs[/bold cyan]")
+    console.print("[dim]Running all ATS discovery modules sequentially...[/dim]\n")
+
+    console.rule("[bold]1 / 3 — Workday[/bold]")
+    r = run_workday_pipeline(limit=0, resume=True, dry_run=dry_run)
+    inserted = r.get("total_jobs_inserted", 0)
+    total_inserted += inserted
+    console.print(f"[green]Workday done:[/green] {inserted} jobs inserted\n")
+
+    console.rule("[bold]2 / 3 — Greenhouse[/bold]")
+    r = run_greenhouse_pipeline(limit=0, resume=True, dry_run=dry_run)
+    inserted = r.get("jobs_inserted", 0)
+    total_inserted += inserted
+    console.print(f"[green]Greenhouse done:[/green] {inserted} jobs inserted\n")
+
+    console.rule("[bold]3 / 3 — Ashby[/bold]")
+    r = run_ashby_pipeline(limit=0, resume=True, dry_run=dry_run)
+    inserted = r.get("jobs_inserted", 0)
+    total_inserted += inserted
+    console.print(f"[green]Ashby done:[/green] {inserted} jobs inserted\n")
+
+    console.rule()
+    console.print(f"[bold green]✅ All done — {total_inserted} total jobs inserted[/bold green]")
+
+
 if __name__ == "__main__":
     app()

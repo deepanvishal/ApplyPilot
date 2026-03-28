@@ -20,13 +20,19 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 def get_portals_for_run(limit: int) -> list[dict]:
-    """Return up to `limit` portals ordered by last_explored_at ASC NULLS FIRST."""
+    """Return portals ordered by last_explored_at ASC NULLS FIRST. limit=0 means all."""
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT * FROM workday_portals
-        ORDER BY last_explored_at ASC NULLS FIRST
-        LIMIT ?
-    """, (limit,)).fetchall()
+    if limit > 0:
+        rows = conn.execute("""
+            SELECT * FROM workday_portals
+            ORDER BY last_explored_at ASC NULLS FIRST
+            LIMIT ?
+        """, (limit,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT * FROM workday_portals
+            ORDER BY last_explored_at ASC NULLS FIRST
+        """).fetchall()
     return [dict(row) for row in rows]
 
 
