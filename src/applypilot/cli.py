@@ -455,7 +455,7 @@ def doctor() -> None:
 
 @app.command()
 def exploreworkday(
-    limit: int = typer.Argument(100, help="Number of Workday portals to explore."),
+    limit: int = typer.Argument(0, help="Number of Workday portals to explore (0 = all)."),
     resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run (default) or start fresh."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
 ) -> None:
@@ -489,7 +489,7 @@ def dedup_jobs() -> None:
 
 @app.command()
 def exploregreenhouse(
-    limit: int = typer.Argument(100, help="Number of Greenhouse companies to explore."),
+    limit: int = typer.Argument(0, help="Number of Greenhouse companies to explore (0 = all)."),
     resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run or fresh start."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
 ) -> None:
@@ -510,7 +510,7 @@ def exploregreenhouse(
 
 @app.command()
 def exploreashby(
-    limit: int = typer.Argument(100, help="Number of Ashby companies to explore."),
+    limit: int = typer.Argument(0, help="Number of Ashby companies to explore (0 = all)."),
     resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run or fresh start."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
 ) -> None:
@@ -530,6 +530,68 @@ def exploreashby(
 
 
 @app.command()
+def prioritize(
+    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score to prioritize."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute scores but do not update DB."),
+) -> None:
+    """Prioritize jobs using embedding similarity between resume and JD.
+
+    Examples:
+        applypilot prioritize
+        applypilot prioritize --min-score 8
+        applypilot prioritize --dry-run
+    """
+    _bootstrap()
+    from applypilot.scoring.prioritize import run_prioritization
+    from rich.table import Table
+    from rich.console import Console as RichConsole
+    c = RichConsole()
+    c.print("\n[bold]Job Prioritization — Embedding Similarity[/bold]")
+    result = run_prioritization(min_score=min_score, dry_run=dry_run)
+    c.print(f"  Total: {result['total']} | Updated: {result['updated']} | Time: {result['elapsed']}s")
+    if result["top_jobs"]:
+        c.print("\n[bold]Top 10 by Embedding Similarity:[/bold]")
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Score", justify="right")
+        table.add_column("Title")
+        table.add_column("Company")
+        for j in result["top_jobs"]:
+            table.add_row(str(j["embedding_score"]), j["title"][:50], (j["company"] or "N/A")[:30])
+        c.print(table)
+
+
+@app.command()
+def release_locked_jobs() -> None:
+    """Release all jobs stuck in 'in_progress' status back to the queue.
+
+    Jobs get stuck when a worker crashes or is killed mid-application.
+    This resets them so they can be picked up again.
+    """
+    from rich.console import Console
+    _bootstrap()
+    console = Console()
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT url, title, agent_id, last_attempted_at
+        FROM jobs
+        WHERE apply_status = 'in_progress'
+    """).fetchall()
+    if not rows:
+        console.print("[green]No locked jobs found.[/green]")
+        return
+    conn.execute("""
+        UPDATE jobs SET apply_status = NULL, agent_id = NULL
+        WHERE apply_status = 'in_progress'
+    """)
+    conn.commit()
+    console.print(f"[bold green]Released {len(rows)} locked job(s):[/bold green]")
+    for row in rows:
+        agent = row["agent_id"] or "unknown"
+        attempted = row["last_attempted_at"] or "unknown"
+        console.print(f"  [cyan]{row['title'][:50]}[/cyan]  agent={agent}  last_attempted={attempted}")
+
+
+@app.command(name="Genie-get_me_jobs")
 def genie_get_me_jobs(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview only, no DB inserts."),
 ) -> None:
@@ -542,34 +604,51 @@ def genie_get_me_jobs(
     from applypilot.greenhouse.pipeline import run_greenhouse_pipeline
     from applypilot.ashby.pipeline import run_ashby_pipeline
 
+    import random
+
     _bootstrap()
     console = Console()
 
+    greetings = [
+        "✨ Your wish is my command, master! Scouring the job boards across all realms...",
+        "🧞 At your command! I shall conjure opportunities from the furthest corners of the ATS universe!",
+        "✨ You have summoned the Genie! Three portals, infinite possibilities — let us begin!",
+        "🧞 As you wish! Stand back — this kind of magic takes THREE whole wishes worth of effort!",
+        "✨ Ah, a seeker of employment! Fear not — the Genie sees ALL job boards. Commencing the search!",
+    ]
+    farewells = [
+        "🧞 It is done, master! Your jobs await — go forth and get that interview!",
+        "✨ The Genie has delivered! Remember — you still have two wishes left.",
+        "🧞 And so it is written, so it shall be applied to! Good luck out there, master!",
+        "✨ Your kingdom of job listings has been assembled. The Genie bows out... for now.",
+        "🧞 Done! The lamp grows dim — but your pipeline glows bright with opportunity!",
+    ]
+
     total_inserted = 0
 
-    console.print("\n[bold cyan]✨ Genie Get Me Jobs[/bold cyan]")
-    console.print("[dim]Running all ATS discovery modules sequentially...[/dim]\n")
+    console.print(f"\n{random.choice(greetings)}\n")
 
     console.rule("[bold]1 / 3 — Workday[/bold]")
     r = run_workday_pipeline(limit=0, resume=True, dry_run=dry_run)
     inserted = r.get("total_jobs_inserted", 0)
     total_inserted += inserted
-    console.print(f"[green]Workday done:[/green] {inserted} jobs inserted\n")
+    console.print(f"[green]Workday:[/green] {inserted} jobs conjured\n")
 
     console.rule("[bold]2 / 3 — Greenhouse[/bold]")
     r = run_greenhouse_pipeline(limit=0, resume=True, dry_run=dry_run)
     inserted = r.get("jobs_inserted", 0)
     total_inserted += inserted
-    console.print(f"[green]Greenhouse done:[/green] {inserted} jobs inserted\n")
+    console.print(f"[green]Greenhouse:[/green] {inserted} jobs conjured\n")
 
     console.rule("[bold]3 / 3 — Ashby[/bold]")
     r = run_ashby_pipeline(limit=0, resume=True, dry_run=dry_run)
     inserted = r.get("jobs_inserted", 0)
     total_inserted += inserted
-    console.print(f"[green]Ashby done:[/green] {inserted} jobs inserted\n")
+    console.print(f"[green]Ashby:[/green] {inserted} jobs conjured\n")
 
     console.rule()
-    console.print(f"[bold green]✅ All done — {total_inserted} total jobs inserted[/bold green]")
+    console.print(f"[bold cyan]Total: {total_inserted} jobs added to your pipeline[/bold cyan]")
+    console.print(f"\n{random.choice(farewells)}")
 
 
 if __name__ == "__main__":

@@ -315,8 +315,8 @@ async def genie_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "genie" in _procs and _procs["genie"].poll() is None:
         await update.message.reply_text("⚠️ Genie is already running.")
         return
-    run_command("genie", ["applypilot", "genie-get-me-jobs"])
-    await update.message.reply_text("✨ Genie Get Me Jobs started — running Workday → Greenhouse → Ashby sequentially.")
+    run_command("genie", ["applypilot", "Genie-get_me_jobs"])
+    await update.message.reply_text("✨ Your wish is my command\\! Summoning jobs from Workday, Greenhouse, and Ashby\\.\\.\\. 🧞", parse_mode="MarkdownV2")
 
 
 async def genie_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -414,6 +414,17 @@ async def tailor_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🛑 Tailoring stopped.")
     else:
         await update.message.reply_text("ℹ️ Tailoring is not running.")
+
+
+async def release_locked(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    result = subprocess.run(
+        ["applypilot", "release-locked-jobs"],
+        cwd=str(APPLYPILOT_DIR),
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout.strip() or result.stderr.strip()
+    await update.message.reply_text(f"🔓 {output[:500]}")
 
 
 async def dedup(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -515,6 +526,7 @@ def main():
     app.add_handler(CommandHandler("tailor_stop", tailor_stop))
 
     # Reports & maintenance
+    app.add_handler(CommandHandler("release_locked", release_locked))
     app.add_handler(CommandHandler("dedup", dedup))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("report_detail", report_detail))

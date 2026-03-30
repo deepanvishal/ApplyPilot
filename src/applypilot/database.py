@@ -130,10 +130,20 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             last_attempted_at     TEXT,
             apply_duration_ms     INTEGER,
             apply_task_id         TEXT,
-            verification_confidence TEXT
+            verification_confidence TEXT,
+
+            -- Prioritization stage (embedding similarity)
+            embedding_score       FLOAT
         )
     """)
     conn.commit()
+
+    # Forward migration: add embedding_score if missing (existing DBs)
+    try:
+        conn.execute("ALTER TABLE jobs ADD COLUMN embedding_score FLOAT")
+        conn.commit()
+    except Exception:
+        pass
 
     # Workday discovery tables
     conn.execute("""
