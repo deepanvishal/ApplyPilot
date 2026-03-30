@@ -137,7 +137,10 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND fit_score >= ?
                   {site_clause}
                   {url_clauses}
-                ORDER BY fit_score DESC, url
+                ORDER BY
+                    CASE WHEN embedding_score IS NOT NULL THEN embedding_score ELSE 0 END DESC,
+                    fit_score DESC,
+                    discovered_at DESC
                 LIMIT 1
             """, [config.DEFAULTS["max_apply_attempts"]] + params).fetchone()
 
