@@ -84,7 +84,7 @@ def run(
         ),
     ),
     min_score: int = typer.Option(7, "--min-score", help="Minimum fit score for tailor/cover stages."),
-    workers: int = typer.Option(1, "--workers", "-w", help="Parallel threads for discovery/enrichment stages."),
+    workers: int = typer.Option(5, "--workers", "-w", help="Parallel threads for discovery/enrichment stages."),
     stream: bool = typer.Option(False, "--stream", help="Run stages concurrently (streaming mode)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview stages without executing."),
     validation: str = typer.Option(
@@ -649,6 +649,131 @@ def genie_get_me_jobs(
     console.rule()
     console.print(f"[bold cyan]Total: {total_inserted} jobs added to your pipeline[/bold cyan]")
     console.print(f"\n{random.choice(farewells)}")
+
+
+@app.command(name="run-genie")
+def run_genie_command(
+    limit: int = typer.Option(0, "--limit", help="Max portals to explore. 0 = all."),
+    resume: bool = typer.Option(True, "--resume/--no-resume", help="Resume last run or start fresh."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
+    ats: list[str] = typer.Option(None, "--ats", help="ATS types to include: workday greenhouse ashby lever bamboohr"),
+    workers: int = typer.Option(5, "--workers", help="Worker count override for Workday only. Other ATS types use preset counts (greenhouse=15, ashby=15, lever=15, bamboohr=10)."),
+) -> None:
+    """Discover jobs from all ATS portals into the genie_jobs table.
+
+    Examples:
+        applypilot run-genie
+        applypilot run-genie --limit 50
+        applypilot run-genie --no-resume
+        applypilot run-genie --dry-run
+        applypilot run-genie --ats workday --ats greenhouse
+        applypilot run-genie --workers 3   # override Workday workers only
+    """
+    _bootstrap()
+    from applypilot.genie.pipeline import run_genie
+    result = run_genie(
+        limit=limit,
+        resume=resume,
+        dry_run=dry_run,
+        ats_types=ats if ats else None,
+        workers=workers,
+    )
+    if result.get("errors"):
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def exploreemail(
+    days: int = typer.Option(30, "--days", help="Look back N days."),
+) -> None:
+    """Extract LinkedIn job URLs from Gmail job alert emails."""
+    _bootstrap()
+    from applypilot.email_explore.pipeline import run_email_explore
+    result = run_email_explore(days=days)
+    console.print(f"Emails read: {result['emails']}")
+    console.print(f"URLs found: {result['urls_found']}")
+    console.print(f"New jobs inserted: {result['inserted']}")
+    console.print(f"Duplicates skipped: {result['skipped']}")
+
+
+@app.command()
+def enrich(
+    limit: int = typer.Option(100, "--limit", help="Max jobs per site to enrich."),
+    workers: int = typer.Option(3, "--workers", help="Parallel enrichment workers (default 3, max 5)."),
+) -> None:
+    """Scrape full descriptions and apply URLs for jobs missing full_description.
+
+    Examples:
+        applypilot enrich
+        applypilot enrich --workers 5
+        applypilot enrich --limit 50
+    """
+    _bootstrap()
+    if workers > 5:
+        console.print("[yellow]--workers capped at 5 for enrichment (LinkedIn/Indeed rate limits)[/yellow]")
+        workers = 5
+    from applypilot.enrichment.detail import run_enrichment
+    result = run_enrichment(limit=limit, workers=workers)
+    console.print(f"Processed: {result.get('processed', 0)}")
+    console.print(f"OK:        {result.get('ok', 0)}")
+    console.print(f"Partial:   {result.get('partial', 0)}")
+    console.print(f"Error:     {result.get('error', 0)}")
+
+
+@app.command()
+def exploreserper(
+    tbs: str = typer.Option(
+        "qdr:w",
+        "--tbs",
+        help="Time filter: qdr:d=day, qdr:w=week, qdr:m=month, qdr:y=year",
+    ),
+    workers: int = typer.Option(
+        10,
+        "--workers",
+        help="Parallel workers for combo processing.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be inserted without writing to DB.",
+    ),
+    titles: list[str] = typer.Option(
+        None,
+        "--title",
+        help="Override titles (repeatable: --title 'Data Scientist' --title 'ML Engineer')",
+    ),
+    locations: list[str] = typer.Option(
+        None,
+        "--location",
+        help="Override locations (repeatable: --location 'New York' --location 'Remote')",
+    ),
+) -> None:
+    """Discover LinkedIn jobs via Google Serper search.
+
+    Examples:
+        applypilot exploreserper
+        applypilot exploreserper --tbs qdr:d
+        applypilot exploreserper --tbs qdr:m
+        applypilot exploreserper --dry-run
+        applypilot exploreserper --workers 5
+        applypilot exploreserper --title "Data Scientist" --location "Remote"
+    """
+    _bootstrap()
+    from applypilot.serper.pipeline import run_serper
+    result = run_serper(
+        tbs=tbs,
+        workers=workers,
+        dry_run=dry_run,
+        titles_override=titles if titles else None,
+        locations_override=locations if locations else None,
+    )
+    console.print("\n[bold]Serper Explore Complete[/bold]")
+    console.print(f"  URLs found:   {result['total_urls']}")
+    console.print(f"  Inserted:     {result['total_inserted']}")
+    console.print(f"  Skipped:      {result['total_skipped']}")
+    console.print(f"  Credits used: {result['total_credits']}")
+    if dry_run:
+        console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
 
 
 if __name__ == "__main__":

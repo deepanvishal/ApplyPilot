@@ -94,20 +94,7 @@ def is_us_location(job: dict) -> bool:
 # Title relevance filter
 # ---------------------------------------------------------------------------
 
-def title_matches(job_title: str, search_titles: list[str]) -> bool:
-    """
-    Match job_title against search_titles using consecutive phrase matching.
-    Only phrases of length >= 2 words are considered.
-    """
-    job_lower = job_title.lower()
-    for search_title in search_titles:
-        words = search_title.lower().split()
-        for length in range(2, len(words) + 1):
-            for start in range(len(words) - length + 1):
-                phrase = " ".join(words[start:start + length])
-                if phrase in job_lower:
-                    return True
-    return False
+from applypilot.utils.matching import title_matches  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

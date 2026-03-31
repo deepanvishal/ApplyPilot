@@ -516,12 +516,12 @@ def clean_description(text: str) -> str:
 # -- Orchestration -----------------------------------------------------------
 
 SITE_DELAYS = {
-    "RemoteOK": 3.0,
-    "WelcomeToTheJungle": 2.0,
-    "Job Bank Canada": 1.5,
-    "CareerJet Canada": 3.0,
+    "RemoteOK": 1.0,
+    "WelcomeToTheJungle": 1.0,
+    "Job Bank Canada": 1.0,
+    "CareerJet Canada": 1.0,
     "Hacker News Jobs": 1.0,
-    "BuiltIn Remote": 2.0,
+    "BuiltIn Remote": 1.0,
 }
 
 RETRYABLE_STATUSES = {408, 429, 500, 502, 503, 504}
@@ -610,7 +610,7 @@ def scrape_site_batch(
     conn: sqlite3.Connection | None,
     site: str,
     jobs: list[tuple],
-    delay: float = 2.0,
+    delay: float = 1.0,
     max_jobs: int | None = None,
 ) -> dict:
     """Process all jobs for one site using shared browser context.
@@ -692,18 +692,20 @@ def _run_detail_scraper(
     conn: sqlite3.Connection,
     sites: list[str] | None = None,
     max_per_site: int | None = None,
-    workers: int = 1,
+    workers: int = 3,
 ) -> dict:
     """Groups pending jobs by site and processes each batch.
 
-    Sequential by default. When workers > 1, processes multiple site batches
-    in parallel using ThreadPoolExecutor (each thread gets its own browser
-    and DB connection).
+    Sequential when workers=1. When workers > 1, processes multiple site
+    batches in parallel using ThreadPoolExecutor (each thread gets its own
+    browser and DB connection via get_connection()).
 
     Returns aggregate stats dict.
     """
+    import threading
+
     skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
-    where = f"WHERE detail_scraped_at IS NULL AND {skip_filter}"
+    where = f"WHERE full_description IS NULL AND {skip_filter}"
     rows = conn.execute(
         f"SELECT url, title, site FROM jobs {where} ORDER BY site"
     ).fetchall()
@@ -731,24 +733,29 @@ def _run_detail_scraper(
     order += [s for s in sorted(site_jobs.keys()) if s not in order]
 
     total_stats: dict = {"processed": 0, "ok": 0, "partial": 0, "error": 0, "tiers": {1: 0, 2: 0, 3: 0}}
+    stats_lock = threading.Lock()
+    print_lock = threading.Lock()
 
     def _merge_stats(stats: dict) -> None:
-        for k in ("processed", "ok", "partial", "error"):
-            total_stats[k] += stats[k]
-        for t, count in stats["tiers"].items():
-            total_stats["tiers"][t] = total_stats["tiers"].get(t, 0) + count
+        with stats_lock:
+            for k in ("processed", "ok", "partial", "error"):
+                total_stats[k] += stats[k]
+            for t, count in stats["tiers"].items():
+                total_stats["tiers"][t] = total_stats["tiers"].get(t, 0) + count
 
     if workers > 1 and len(order) > 1:
         # Parallel mode: each site batch runs in its own thread with its own
         # DB connection (conn=None tells scrape_site_batch to create one)
         def _scrape_site(site: str) -> dict:
             jobs = site_jobs[site]
-            delay = SITE_DELAYS.get(site, 2.0)
-            log.info("%s -- %d jobs (delay=%.1fs)", site, len(jobs), delay)
+            delay = SITE_DELAYS.get(site, 1.0)
+            with print_lock:
+                log.info("%s -- %d jobs (delay=%.1fs)", site, len(jobs), delay)
             stats = scrape_site_batch(None, site, jobs, delay=delay, max_jobs=max_per_site)
-            log.info("%s summary: %d ok, %d partial, %d error | T1=%d T2=%d T3=%d",
-                     site, stats["ok"], stats["partial"], stats["error"],
-                     stats["tiers"].get(1, 0), stats["tiers"].get(2, 0), stats["tiers"].get(3, 0))
+            with print_lock:
+                log.info("%s summary: %d ok, %d partial, %d error | T1=%d T2=%d T3=%d",
+                         site, stats["ok"], stats["partial"], stats["error"],
+                         stats["tiers"].get(1, 0), stats["tiers"].get(2, 0), stats["tiers"].get(3, 0))
             return stats
 
         with ThreadPoolExecutor(max_workers=min(workers, len(order))) as pool:
@@ -756,10 +763,10 @@ def _run_detail_scraper(
             for future in as_completed(futures):
                 _merge_stats(future.result())
     else:
-        # Sequential mode (default)
+        # Sequential mode
         for site in order:
             jobs = site_jobs[site]
-            delay = SITE_DELAYS.get(site, 2.0)
+            delay = SITE_DELAYS.get(site, 1.0)
             log.info("%s -- %d jobs (delay=%.1fs)", site, len(jobs), delay)
 
             stats = scrape_site_batch(conn, site, jobs, delay=delay, max_jobs=max_per_site)
@@ -817,7 +824,7 @@ def stream_detail(
             skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
             rows = conn.execute(
                 "SELECT url, title, site FROM jobs "
-                f"WHERE detail_scraped_at IS NULL AND {skip_filter} "
+                f"WHERE full_description IS NULL AND {skip_filter} "
                 "ORDER BY site LIMIT 200"
             ).fetchall()
 
@@ -855,7 +862,7 @@ def stream_detail(
 
 # -- Public entry point ------------------------------------------------------
 
-def run_enrichment(limit: int = 100, workers: int = 1) -> dict:
+def run_enrichment(limit: int = 100, workers: int = 3) -> dict:
     """Main entry point for detail page enrichment.
 
     Fetches pending jobs from the database (those without full_description),
@@ -864,7 +871,7 @@ def run_enrichment(limit: int = 100, workers: int = 1) -> dict:
 
     Args:
         limit: Maximum number of jobs per site to process.
-        workers: Number of parallel threads for site batch processing. Default 1 (sequential).
+        workers: Number of parallel threads for site batch processing. Default 5.
 
     Returns:
         Dict with stats: processed, ok, partial, error, tiers.
