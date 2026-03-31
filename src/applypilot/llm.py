@@ -181,7 +181,11 @@ class LLMClient:
     def _handle_compat_response(resp: httpx.Response) -> str:
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"].get("content", "") if data.get("choices") else ""
+        if not content:
+            log.error("Empty LLM response (no content in choices): %s", str(data)[:200])
+            return ""
+        return content
 
     # -- public API ---------------------------------------------------------
 

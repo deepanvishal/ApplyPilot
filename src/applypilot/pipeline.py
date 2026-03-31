@@ -110,11 +110,11 @@ def _run_enrich(workers: int = 1) -> dict:
         return {"status": f"error: {e}"}
 
 
-def _run_score() -> dict:
+def _run_score(workers: int = 5) -> dict:
     """Stage: LLM scoring — assign fit scores 1-10."""
     try:
         from applypilot.scoring.scorer import run_scoring
-        run_scoring()
+        run_scoring(workers=workers)
         return {"status": "ok"}
     except Exception as e:
         log.error("Scoring failed: %s", e)
@@ -274,7 +274,7 @@ def _run_stage_streaming(
     if stage in ("tailor", "cover"):
         kwargs["min_score"] = min_score
         kwargs["validation_mode"] = validation_mode
-    if stage in ("discover", "enrich"):
+    if stage in ("discover", "enrich", "score"):
         kwargs["workers"] = workers
 
     upstream = _UPSTREAM[stage]
@@ -345,7 +345,7 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
             if name in ("tailor", "cover"):
                 kwargs["min_score"] = min_score
                 kwargs["validation_mode"] = validation_mode
-            if name in ("discover", "enrich"):
+            if name in ("discover", "enrich", "score"):
                 kwargs["workers"] = workers
             result = runner(**kwargs)
             elapsed = time.time() - t0

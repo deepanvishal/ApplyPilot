@@ -721,6 +721,28 @@ def enrich(
 
 
 @app.command()
+def enrichlinkedin(
+    workers: int = typer.Option(5, "--workers", help="Parallel workers."),
+    limit: int = typer.Option(0, "--limit", help="Max jobs. 0 = all."),
+) -> None:
+    """Enrich LinkedIn jobs using guest API (no auth required).
+
+    Examples:
+        applypilot enrichlinkedin
+        applypilot enrichlinkedin --workers 10
+        applypilot enrichlinkedin --limit 500
+    """
+    _bootstrap()
+    from applypilot.enrichment.linkedin_enrich import enrich_linkedin_jobs
+    result = enrich_linkedin_jobs(workers=workers, limit=limit)
+    console.print("\n[bold]LinkedIn Enrichment Complete[/bold]")
+    console.print(f"  Total:    {result['total']}")
+    console.print(f"  Enriched: {result['enriched']}")
+    console.print(f"  Failed:   {result['failed']}")
+    console.print(f"  Time:     {result['elapsed']}s")
+
+
+@app.command()
 def exploreserper(
     tbs: str = typer.Option(
         "qdr:w",
