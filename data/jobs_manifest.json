@@ -1,0 +1,33 @@
+{
+  "chunks": [
+    "jobs_chunk_0.json.gz",
+    "jobs_chunk_1.json.gz",
+    "jobs_chunk_2.json.gz",
+    "jobs_chunk_3.json.gz",
+    "jobs_chunk_4.json.gz",
+    "jobs_chunk_5.json.gz",
+    "jobs_chunk_6.json.gz",
+    "jobs_chunk_7.json.gz",
+    "jobs_chunk_8.json.gz",
+    "jobs_chunk_9.json.gz",
+    "jobs_chunk_10.json.gz",
+    "jobs_chunk_11.json.gz",
+    "jobs_chunk_12.json.gz",
+    "jobs_chunk_13.json.gz",
+    "jobs_chunk_14.json.gz",
+    "jobs_chunk_15.json.gz",
+    "jobs_chunk_16.json.gz",
+    "jobs_chunk_17.json.gz",
+    "jobs_chunk_18.json.gz",
+    "jobs_chunk_19.json.gz",
+    "jobs_chunk_20.json.gz",
+    "jobs_chunk_21.json.gz",
+    "jobs_chunk_22.json.gz",
+    "jobs_chunk_23.json.gz",
+    "jobs_chunk_24.json.gz",
+    "jobs_chunk_25.json.gz",
+    "jobs_chunk_26.json.gz"
+  ],
+  "totalJobs": 653833,
+  "last_updated": "2026-03-30T02:06:49.334396Z"
+}
