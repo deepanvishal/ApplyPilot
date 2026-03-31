@@ -8,7 +8,9 @@ profile and resume file.
 import json
 import logging
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from applypilot.config import RESUME_PATH, load_profile
@@ -89,11 +91,12 @@ def score_job(resume_text: str, job: dict) -> dict:
     Returns:
         {"score": int, "keywords": str, "reasoning": str}
     """
+    description = job.get("full_description") or ""
     job_text = (
         f"TITLE: {job['title']}\n"
         f"COMPANY: {job.get('company') or job.get('site', 'N/A')}\n"
         f"LOCATION: {job.get('location', 'N/A')}\n\n"
-        f"DESCRIPTION:\n{(job.get('full_description') or '')[:6000]}"
+        f"DESCRIPTION:\n{description if description else 'Not available - score based on title and company only.'}"
     )
 
     messages = [
@@ -101,21 +104,33 @@ def score_job(resume_text: str, job: dict) -> dict:
         {"role": "user", "content": f"RESUME:\n{resume_text}\n\n---\n\nJOB POSTING:\n{job_text}"},
     ]
 
-    try:
-        client = get_client()
-        response = client.chat(messages, max_tokens=512, temperature=0.2)
-        return _parse_score_response(response)
-    except Exception as e:
-        log.error("LLM error scoring job '%s': %s", job.get("title", "?"), e)
-        return {"score": 0, "keywords": "", "reasoning": f"LLM error: {e}"}
+    delays = [5, 10]
+    for attempt in range(3):
+        try:
+            client = get_client()
+            response = client.chat(messages, max_tokens=512, temperature=0.2)
+            return _parse_score_response(response)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "resource_exhausted" in err_str:
+                if attempt < 2:
+                    wait = delays[attempt]
+                    log.warning("Rate limited scoring '%s', retrying in %ds...", job.get("title", "?"), wait)
+                    time.sleep(wait)
+                    continue
+            log.error("LLM error scoring job '%s': %s", job.get("title", "?"), e)
+            return {"score": 0, "keywords": "", "reasoning": f"LLM error: {e}"}
+
+    return {"score": 0, "keywords": "", "reasoning": "LLM error: max retries exceeded"}
 
 
-def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
+def run_scoring(limit: int = 0, rescore: bool = False, workers: int = 5) -> dict:
     """Score unscored jobs that have full descriptions.
 
     Args:
         limit: Maximum number of jobs to score in this run.
         rescore: If True, re-score all jobs (not just unscored ones).
+        workers: Number of parallel threads for LLM scoring.
 
     Returns:
         {"scored": int, "errors": int, "elapsed": float, "distribution": list}
@@ -140,35 +155,42 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         columns = jobs[0].keys()
         jobs = [dict(zip(columns, row)) for row in jobs]
 
-    log.info("Scoring %d jobs sequentially...", len(jobs))
+    log.info("Scoring %d jobs with %d workers...", len(jobs), workers)
     t0 = time.time()
     completed = 0
     errors = 0
     results: list[dict] = []
+    lock = threading.Lock()
 
-    for job in jobs:
+    def _score_one(job: dict) -> dict:
         result = score_job(resume_text, job)
         result["url"] = job["url"]
-        completed += 1
+        return result
 
-        if result["score"] == 0:
-            errors += 1
-
-        results.append(result)
-
-        log.info(
-            "[%d/%d] score=%d  %s",
-            completed, len(jobs), result["score"], job.get("title", "?")[:60],
-        )
-
-    # Write scores to DB
     now = datetime.now(timezone.utc).isoformat()
-    for r in results:
-        conn.execute(
-            "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
-            (r["score"], f"{r['keywords']}\n{r['reasoning']}", now, r["url"]),
-        )
-    conn.commit()
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_score_one, job): job for job in jobs}
+        for future in as_completed(futures):
+            job = futures[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                result = {"score": 0, "keywords": "", "reasoning": f"error: {e}", "url": job["url"]}
+
+            with lock:
+                completed += 1
+                if result["score"] == 0:
+                    errors += 1
+                results.append(result)
+                conn.execute(
+                    "UPDATE jobs SET fit_score = ?, score_reasoning = ?, scored_at = ? WHERE url = ?",
+                    (result["score"], f"{result['keywords']}\n{result['reasoning']}", now, result["url"]),
+                )
+                conn.commit()
+                log.info(
+                    "[%d/%d] score=%d  %s",
+                    completed, len(jobs), result["score"], job.get("title", "?")[:60],
+                )
 
     elapsed = time.time() - t0
     log.info("Done: %d scored in %.1fs (%.1f jobs/sec)", len(results), elapsed, len(results) / elapsed if elapsed > 0 else 0)

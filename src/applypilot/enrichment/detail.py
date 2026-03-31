@@ -704,10 +704,11 @@ def _run_detail_scraper(
     """
     import threading
 
-    skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
-    where = f"WHERE full_description IS NULL AND {skip_filter}"
     rows = conn.execute(
-        f"SELECT url, title, site FROM jobs {where} ORDER BY site"
+        "SELECT url, title, site FROM jobs "
+        "WHERE full_description IS NULL AND url IS NOT NULL "
+        "AND NOT (site = 'linkedin' AND detail_scraped_at IS NOT NULL) "
+        "ORDER BY site"
     ).fetchall()
 
     if not rows:
@@ -821,10 +822,10 @@ def stream_detail(
 
     try:
         while True:
-            skip_filter = " AND ".join(f"site != '{s}'" for s in SKIP_DETAIL_SITES)
             rows = conn.execute(
                 "SELECT url, title, site FROM jobs "
-                f"WHERE full_description IS NULL AND {skip_filter} "
+                "WHERE full_description IS NULL AND url IS NOT NULL "
+                "AND NOT (site = 'linkedin' AND detail_scraped_at IS NOT NULL) "
                 "ORDER BY site LIMIT 200"
             ).fetchall()
 
@@ -877,6 +878,22 @@ def run_enrichment(limit: int = 100, workers: int = 3) -> dict:
         Dict with stats: processed, ok, partial, error, tiers.
     """
     conn = init_db()
+
+    # Pre-step: LinkedIn guest API enrichment
+    linkedin_pending = conn.execute("""
+        SELECT COUNT(*) FROM jobs
+        WHERE site = 'linkedin'
+        AND full_description IS NULL
+        AND detail_scraped_at IS NULL
+        AND url LIKE '%linkedin.com/jobs/view/%'
+    """).fetchone()[0]
+
+    if linkedin_pending > 0:
+        log.info("LinkedIn pre-enrichment: %d jobs pending", linkedin_pending)
+        from applypilot.enrichment.linkedin_enrich import enrich_linkedin_jobs
+        li_stats = enrich_linkedin_jobs(workers=workers)
+        log.info("LinkedIn pre-enrichment done: %d/%d enriched",
+                 li_stats["enriched"], li_stats["total"])
 
     # URL resolution first
     url_stats = resolve_all_urls(conn)

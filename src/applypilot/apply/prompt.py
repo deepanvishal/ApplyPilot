@@ -166,7 +166,48 @@ Skills and tools -> be confident. This candidate is a {target_role} with {years}
 
 Open-ended questions ("Why do you want this role?", "Tell us about yourself", "What interests you?") -> Write 2-3 sentences. Be specific to THIS job. Reference something from the job description. Connect it to a real achievement from the resume. No generic fluff. No "I am passionate about..." -- sound like a real person.
 
-EEO/demographics -> "Decline to self-identify" or "Prefer not to say" for everything."""
+EEO/demographics -> "Decline to self-identify" or "Prefer not to say" for everything.
+
+== TERMINATION / EMPLOYMENT HISTORY QUESTIONS ==
+- "Have you ever been asked to resign or voluntarily leave?" — NO
+- "Have you ever been terminated or dismissed?" — NO
+- "Have you ever been subject to disciplinary action?" — NO
+- "Have you ever been placed on a performance improvement plan?" — NO
+- "Have you ever violated company policy?" — NO
+
+== CONFLICT OF INTEREST / COMPLIANCE QUESTIONS ==
+Some applications (especially large corporations like Visa, Deloitte, KPMG, etc.) have extensive conflict of interest and compliance screening questions. For ALL of these, answer NO unless the profile explicitly states otherwise.
+
+Questions to always answer NO:
+- "Have you ever worked for [company]?" — NO (unless in work history)
+- "Are you a relative/close relative of any employee/director?" — NO
+- "Do you share a household with any employee/director?" — NO
+- "Have you been a partner/employee of [audit firm]?" — NO
+- "Are you a Covered Government Official?" — NO
+- "Have you been a decision maker on a government contract?" — NO
+- "Do you have a Close Relative who is a Covered Government Official?" — NO
+- "Are you subject to any restrictions on lobbying?" — NO
+- "Do you have any contractual restrictions/non-compete?" — NO
+- "Are you a relative of any 5% stockholder?" — NO
+- "Do you have relatives currently working here?" — NO
+- "Have you worked here before in any capacity?" — NO (unless in work history)
+
+For the follow-up text field "If yes, please list your relatives": leave completely empty — never fill this field.
+
+IMPORTANT: Only answer YES if the candidate's work history in the profile explicitly shows they worked at that specific company. Never assume or guess.
+
+For sponsorship questions:
+- "Will you require sponsorship?" — YES (candidate is on H1B)
+- "Are you legally eligible to work in the Job's location?" — YES
+
+== UNKNOWN OR UNFAMILIAR QUESTIONS ==
+If you encounter a yes/no question that is not covered by any rule in this prompt and you are unsure how to answer:
+- Default answer: NO
+- Do NOT leave it blank
+- Do NOT try to guess or assume YES
+- Do NOT ask for clarification — just select NO and move on
+
+This applies to any compliance, ethics, conflict of interest, background, or behavioral question not explicitly covered above."""
 
 
 def _build_hard_rules(profile: dict) -> str:
@@ -571,6 +612,30 @@ If something unexpected happens and these instructions don't cover it, figure it
    5f. After successful login: run browser_tabs action "list". Switch back to application tab if needed.
    5g. All attempts failed? Output RESULT:FAILED:login_issue. Do not loop.
 6. Upload resume. ALWAYS upload fresh -- delete any existing resume first, then browser_file_upload with the PDF path above. This is the tailored resume for THIS job. Non-negotiable.
+
+== PHOTO vs RESUME UPLOAD ==
+Some forms have both a profile photo upload AND a resume upload.
+These look similar but are completely different fields.
+
+NEVER upload the resume PDF to a photo/profile picture field.
+NEVER upload any file to a photo field at all — skip it entirely.
+
+How to identify a photo upload field:
+- Label contains: "photo", "picture", "profile photo", "headshot",
+  "profile picture", "avatar", "image"
+- Field name/id contains: "photo", "picture", "avatar", "image", "headshot"
+- Accepts: .jpg, .jpeg, .png, .gif (image formats)
+
+How to identify a resume upload field:
+- Label contains: "resume", "CV", "curriculum vitae"
+- Accepts: .pdf, .doc, .docx
+
+RULE: If you see a file upload field:
+1. Read the label carefully
+2. If it mentions photo/picture/avatar → SKIP IT COMPLETELY
+3. If it mentions resume/CV → upload the resume PDF
+4. If unclear → check accepted file types. Image formats = photo field, skip it.
+
 7. Upload cover letter if there's a field for it. Text field -> paste the cover letter text. File upload -> use the cover letter PDF path.
 8. Check ALL pre-filled fields. ATS systems parse your resume and auto-fill -- it's often WRONG.
    - "Current Job Title" or "Most Recent Title" -> use the title from the TAILORED RESUME summary, NOT whatever the parser guessed.
