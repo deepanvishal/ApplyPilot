@@ -238,6 +238,63 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     """)
     conn.commit()
 
+    # Serper jobs table (experimental — separate from jobs and genie_jobs)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS serper_jobs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id              TEXT,
+            title               TEXT,
+            company             TEXT,
+            location            TEXT,
+            posted_date         TEXT,
+            url                 TEXT UNIQUE,
+            apply_url           TEXT,
+            full_description    TEXT,
+            ats_type            TEXT DEFAULT 'linkedin',
+            discovered_at       TEXT,
+            fit_score           INTEGER,
+            embedding_score     FLOAT,
+            apply_status        TEXT,
+            search_title        TEXT,
+            search_location     TEXT
+        )
+    """)
+
+    # Genie jobs table (separate from main jobs table)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS genie_jobs (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            portal_id           INTEGER,
+            job_id              TEXT,
+            title               TEXT,
+            company             TEXT,
+            location            TEXT,
+            posted_date         TEXT,
+            url                 TEXT UNIQUE,
+            apply_url           TEXT,
+            full_description    TEXT,
+            ats_type            TEXT,
+            discovered_at       TEXT,
+            fit_score           INTEGER,
+            embedding_score     FLOAT,
+            apply_status        TEXT,
+            FOREIGN KEY (portal_id) REFERENCES portals(id)
+        )
+    """)
+    conn.commit()
+
+    # Forward migrations for portals table (created by import_portals.py)
+    for col, typedef in [
+        ("explore_status", "TEXT"),
+        ("last_explored_at", "TEXT"),
+        ("jobs_found", "INTEGER DEFAULT 0"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE portals ADD COLUMN {col} {typedef}")
+            conn.commit()
+        except Exception:
+            pass
+
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
     _ensure_workday_columns(conn)

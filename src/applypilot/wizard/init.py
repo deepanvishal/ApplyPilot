@@ -212,7 +212,7 @@ def _setup_searches() -> None:
         "defaults:",
         f'  location: "{location}"',
         f"  distance: {distance}",
-        "  hours_old: 168",
+        "  hours_old: 24",
         "  results_per_site: 50",
         "",
         "locations:",

@@ -11,12 +11,14 @@ import time
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from applypilot.config import RESUME_PATH, load_env
+from applypilot.config import APP_DIR, RESUME_PATH, load_env
 from applypilot.database import get_connection
 
 log = logging.getLogger(__name__)
 
-MODEL_NAME = "all-MiniLM-L6-v2"
+FINETUNED_MODEL_PATH = APP_DIR / "bge-finetuned"
+FALLBACK_MODEL_NAME = "all-MiniLM-L6-v2"
+BGE_PREFIX = "Represent this sentence for searching relevant passages: "
 BATCH_SIZE = 64
 MIN_SCORE = 7
 
@@ -96,15 +98,23 @@ def run_prioritization(
     descriptions = [r["full_description"] for r in rows]
     discovered_ats = [r["discovered_at"] for r in rows]
 
-    # Load model
+    # Load model — prefer fine-tuned, fall back to MiniLM
     device = _get_device()
-    log.info("Loading model %s on %s...", MODEL_NAME, device)
-    model = SentenceTransformer(MODEL_NAME, device=device)
+    if FINETUNED_MODEL_PATH.exists():
+        model_id = str(FINETUNED_MODEL_PATH)
+        use_bge_prefix = True
+        log.info("Using fine-tuned model: %s", model_id)
+    else:
+        model_id = FALLBACK_MODEL_NAME
+        use_bge_prefix = False
+        log.info("Fine-tuned model not found, using fallback: %s", model_id)
+    model = SentenceTransformer(model_id, device=device)
 
     # Embed resume
     log.info("Embedding resume...")
+    resume_input = (BGE_PREFIX + resume_text) if use_bge_prefix else resume_text
     resume_embedding = model.encode(
-        resume_text,
+        resume_input,
         batch_size=1,
         show_progress_bar=False,
         convert_to_numpy=True,
@@ -112,8 +122,9 @@ def run_prioritization(
 
     # Embed JDs in batches
     log.info("Embedding %d job descriptions (batch_size=%d)...", len(descriptions), BATCH_SIZE)
+    jd_inputs = [(BGE_PREFIX + d) if use_bge_prefix else d for d in descriptions]
     jd_embeddings = model.encode(
-        descriptions,
+        jd_inputs,
         batch_size=BATCH_SIZE,
         show_progress_bar=True,
         convert_to_numpy=True,
