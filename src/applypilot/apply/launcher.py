@@ -26,6 +26,7 @@ from rich.live import Live
 from applypilot import config
 from applypilot.database import get_connection
 from applypilot.apply import chrome, dashboard, prompt as prompt_mod
+from applypilot.apply.url_utils import resolve_apply_url
 from applypilot.apply.chrome import (
     launch_chrome, cleanup_worker, kill_all_chrome,
     reset_worker_dir, cleanup_on_exit, _kill_process_tree,
@@ -104,16 +105,15 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
         conn.execute("BEGIN IMMEDIATE")
 
         if target_url:
-            like = f"%{target_url.split('?')[0].rstrip('/')}%"
             row = conn.execute("""
                 SELECT url, title, site, application_url, tailored_resume_path,
                        fit_score, location, full_description, cover_letter_path
                 FROM jobs
-                WHERE (url = ? OR application_url = ? OR application_url LIKE ? OR url LIKE ?)
+                WHERE (url = ? OR application_url = ?)
                   AND tailored_resume_path IS NOT NULL
                   AND (apply_status IS NULL OR apply_status != 'in_progress')
                 LIMIT 1
-            """, (target_url, target_url, like, like)).fetchone()
+            """, (target_url, target_url)).fetchone()
         else:
             blocked_sites, blocked_patterns = _load_blocked()
             # Build parameterized filters to avoid SQL injection
@@ -391,9 +391,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
 
     worker_log = config.LOG_DIR / f"worker-{worker_id}.log"
     ts_header = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    app_url = job.get('application_url')
-    if not app_url or app_url in ('None', 'nan', ''):
-        app_url = job['url']
+    app_url = resolve_apply_url(job)
     log_header = (
         f"\n{'=' * 60}\n"
         f"[{ts_header}] {job['title']} @ {job.get('site', '')}\n"

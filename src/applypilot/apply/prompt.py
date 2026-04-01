@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from applypilot import config
+from applypilot.apply.url_utils import _clean_apply_url, resolve_apply_url
 
 logger = logging.getLogger(__name__)
 
@@ -538,10 +539,12 @@ def build_prompt(job: dict, tailored_resume: str,
     else:
         submit_instruction = "BEFORE clicking Submit/Apply, take a snapshot and review EVERY field on the page. Verify all data matches the APPLICANT PROFILE and TAILORED RESUME -- name, email, phone, location, work auth, resume uploaded, cover letter if applicable. If anything is wrong or missing, fix it FIRST. Only click Submit after confirming everything is correct."
 
+    _app_url = resolve_apply_url(job)
+
     prompt = f"""You are an autonomous job application agent. Your ONE mission: get this candidate an interview. You have all the information and tools. Think strategically. Act decisively. Submit the application.
 
 == JOB ==
-URL: {job.get('application_url') if job.get('application_url') not in (None, '', 'None', 'none', 'nan') else job['url']}
+URL: {_app_url}
 Title: {job['title']}
 Company: {job.get('company') or job.get('site', 'Unknown')}
 Fit Score: {job.get('fit_score', 'N/A')}/10
