@@ -225,6 +225,9 @@ def run_email_explore(days: int = 30) -> dict:
         console.print("[red]Agent returned no output.[/red]")
         return {"emails": 0, "urls_found": 0, "inserted": 0, "skipped": 0}
 
+    log.debug("Agent raw output:\n%s", output_text)
+    console.print(f"[dim]Agent output (last 500 chars):[/dim]\n{output_text[-500:]}")
+
     emails_read, job_ids = _extract_job_ids_from_text(output_text)
 
     # Deduplicate

@@ -630,19 +630,22 @@ def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
     return []
 
 
-_DEDUP_CANDIDATES = """
+_PRIORITY_ORDER = """
+    CASE WHEN applied_at IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN apply_status = 'applied' THEN 0 ELSE 1 END,
+    CASE WHEN tailored_resume_path IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN cover_letter_path IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN fit_score IS NOT NULL THEN 0 ELSE 1 END,
+    CASE WHEN full_description IS NOT NULL THEN 0 ELSE 1 END,
+    discovered_at DESC
+"""
+
+_DEDUP_BY_APPLICATION_URL = """
     SELECT url FROM (
         SELECT url,
                ROW_NUMBER() OVER (
                    PARTITION BY application_url
-                   ORDER BY
-                       CASE WHEN applied_at IS NOT NULL THEN 0 ELSE 1 END,
-                       CASE WHEN apply_status = 'applied' THEN 0 ELSE 1 END,
-                       CASE WHEN tailored_resume_path IS NOT NULL THEN 0 ELSE 1 END,
-                       CASE WHEN cover_letter_path IS NOT NULL THEN 0 ELSE 1 END,
-                       CASE WHEN fit_score IS NOT NULL THEN 0 ELSE 1 END,
-                       CASE WHEN full_description IS NOT NULL THEN 0 ELSE 1 END,
-                       discovered_at DESC
+                   ORDER BY """ + _PRIORITY_ORDER + """
                ) as rn
         FROM jobs
         WHERE application_url IS NOT NULL
@@ -652,13 +655,27 @@ _DEDUP_CANDIDATES = """
     WHERE rn != 1
 """
 
+_DEDUP_BY_URL = """
+    SELECT url FROM (
+        SELECT url,
+               ROW_NUMBER() OVER (
+                   PARTITION BY url
+                   ORDER BY """ + _PRIORITY_ORDER + """
+               ) as rn
+        FROM jobs
+    ) ranked
+    WHERE rn != 1
+"""
+
 
 def dedup_jobs() -> dict:
-    """Deduplicate jobs table by application_url.
+    """Deduplicate jobs table in two rounds:
 
-    For each group of rows sharing the same application_url, keeps the one with
-    the most pipeline progress. Applied jobs are never touched.
-    Rows with NULL/empty/invalid application_url are left untouched.
+    Round 1 — by application_url: keeps the row with the most pipeline progress.
+    Round 2 — by url: handles serper/email jobs that share a LinkedIn URL but
+               have no application_url yet.
+
+    Applied jobs are never deleted in either round.
 
     Returns:
         Dict with keys: before, after, removed.
@@ -667,13 +684,22 @@ def dedup_jobs() -> dict:
 
     before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
+    # Round 1: dedup by application_url
     conn.execute(f"""
         DELETE FROM jobs
         WHERE application_url IS NOT NULL
         AND TRIM(application_url) != ''
         AND application_url NOT IN ('None','nan')
         AND (apply_status IS NULL OR apply_status != 'applied')
-        AND url IN ({_DEDUP_CANDIDATES})
+        AND url IN ({_DEDUP_BY_APPLICATION_URL})
+    """)
+    conn.commit()
+
+    # Round 2: dedup by url
+    conn.execute(f"""
+        DELETE FROM jobs
+        WHERE (apply_status IS NULL OR apply_status != 'applied')
+        AND url IN ({_DEDUP_BY_URL})
     """)
     conn.commit()
 
