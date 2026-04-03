@@ -64,12 +64,16 @@ def _build_prompt(days: int) -> str:
 Steps:
 1. Search Gmail with query: "from:jobalerts-noreply@linkedin.com newer_than:{days}d"
    Use maxResults=500 to get all emails.
-2. For each email returned, read the full message body.
-3. From each body, extract ALL URLs matching this pattern:
-   https://www.linkedin.com/comm/jobs/view/{{job_id}}/
-   OR
-   https://www.linkedin.com/jobs/view/{{job_id}}
-4. Collect all unique job IDs found across all emails.
+2. The search results will include email snippets. Extract job IDs from those snippets first
+   using the pattern /jobs/view/(\\d+).
+3. For any emails whose snippets did not contain job URLs, read those emails individually.
+4. Collect all unique job IDs found across all emails and snippets.
+
+CRITICAL RULES:
+- You MUST process every single email returned by the search — do not stop early.
+- Do NOT explain what you would do or summarize remaining work. Just do it.
+- Do NOT output anything until you have processed ALL emails.
+- Never say "the complete extraction would require additional processing" — complete it yourself.
 
 When done, output ONLY a JSON object in this exact format (no other text):
 {{
