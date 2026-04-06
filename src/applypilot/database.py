@@ -5,6 +5,7 @@ pipeline stage are created up front so any stage can run independently
 without migration ordering issues.
 """
 
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -15,6 +16,51 @@ from applypilot.config import DB_PATH
 # Thread-local connection storage — each thread gets its own connection
 # (required for SQLite thread safety with parallel workers)
 _local = threading.local()
+
+
+def _normalize_url(url: str | None) -> str | None:
+    """Normalize an application URL to a canonical form for deduplication.
+
+    Handles differences across ATS portals:
+      Workday    — strip /en-XX/ locale prefix, strip /apply suffix, lowercase
+      Greenhouse — normalize job-boards vs boards subdomain, extract job ID from embed URLs
+      Ashby      — strip /application suffix
+      Lever      — strip /apply suffix
+      BambooHR   — strip trailing /apply or /apply-now
+      All        — lowercase, strip query string + fragment, strip trailing slash
+    """
+    if not url:
+        return None
+
+    url = url.strip().lower()
+    # Strip query string and fragment
+    url = url.split("?")[0].split("#")[0]
+    # Strip trailing slash
+    url = url.rstrip("/")
+
+    if "myworkdayjobs.com" in url:
+        # Strip /apply suffix
+        url = re.sub(r"/apply$", "", url)
+        # Strip locale segment: /en-us/, /en-gb/, /fr-fr/ etc.
+        url = re.sub(r"/[a-z]{2}-[a-z]{2}/", "/", url)
+
+    elif "greenhouse.io" in url:
+        # Normalize subdomain: job-boards.greenhouse.io → boards.greenhouse.io
+        url = url.replace("job-boards.greenhouse.io", "boards.greenhouse.io")
+        # Normalize embed URLs: /embed/job_app?token=ID → /jobs/ID (already stripped query above)
+        # Strip /apply suffix
+        url = re.sub(r"/apply$", "", url)
+
+    elif "ashbyhq.com" in url:
+        url = re.sub(r"/application$", "", url)
+
+    elif "lever.co" in url:
+        url = re.sub(r"/apply$", "", url)
+
+    elif "bamboohr.com" in url:
+        url = re.sub(r"/apply(?:-now)?$", "", url)
+
+    return url
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
@@ -46,6 +92,7 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")
     conn.row_factory = sqlite3.Row
+    conn.create_function("normalize_url", 1, _normalize_url)
     _local.connections[path] = conn
     return conn
 
@@ -288,12 +335,29 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         ("explore_status", "TEXT"),
         ("last_explored_at", "TEXT"),
         ("jobs_found", "INTEGER DEFAULT 0"),
+        ("jobs_applied", "INTEGER DEFAULT 0"),
+        ("last_applied_at", "TEXT"),
     ]:
         try:
             conn.execute(f"ALTER TABLE portals ADD COLUMN {col} {typedef}")
             conn.commit()
         except Exception:
             pass
+
+    # Company response signals — one row per company
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS company_signals (
+            company_name      TEXT PRIMARY KEY,
+            tier              TEXT,
+            industry          TEXT,
+            size_tier         TEXT,
+            public_private    TEXT,
+            responded         INTEGER DEFAULT 0,
+            notes             TEXT,
+            updated_at        TEXT
+        )
+    """)
+    conn.commit()
 
     # Run migrations for any columns added after initial schema
     ensure_columns(conn)
@@ -343,6 +407,12 @@ _ALL_COLUMNS: dict[str, str] = {
     "apply_duration_ms": "INTEGER",
     "apply_task_id": "TEXT",
     "verification_confidence": "TEXT",
+    # Outcome tracking
+    "outcome": "TEXT",
+    "outcome_at": "TEXT",
+    # Optimization
+    "optimizer_rank": "INTEGER DEFAULT 0",
+    "last_optimizer_rank": "INTEGER DEFAULT 0",
 }
 
 
@@ -644,13 +714,14 @@ _DEDUP_BY_APPLICATION_URL = """
     SELECT url FROM (
         SELECT url,
                ROW_NUMBER() OVER (
-                   PARTITION BY application_url
+                   PARTITION BY normalize_url(application_url)
                    ORDER BY """ + _PRIORITY_ORDER + """
                ) as rn
         FROM jobs
         WHERE application_url IS NOT NULL
         AND TRIM(application_url) != ''
         AND application_url NOT IN ('None','nan')
+        AND normalize_url(application_url) IS NOT NULL
     ) ranked
     WHERE rn != 1
 """
@@ -684,12 +755,13 @@ def dedup_jobs() -> dict:
 
     before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
-    # Round 1: dedup by application_url
+    # Round 1: dedup by normalized application_url
     conn.execute(f"""
         DELETE FROM jobs
         WHERE application_url IS NOT NULL
         AND TRIM(application_url) != ''
         AND application_url NOT IN ('None','nan')
+        AND normalize_url(application_url) IS NOT NULL
         AND (apply_status IS NULL OR apply_status != 'applied')
         AND url IN ({_DEDUP_BY_APPLICATION_URL})
     """)

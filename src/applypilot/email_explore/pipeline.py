@@ -1,257 +1,221 @@
-"""Email explore pipeline: extract LinkedIn job URLs from Gmail job alert emails.
+"""Email explore pipeline: extract LinkedIn job URLs from Gmail.
 
-Spawns a Claude Code subprocess with Gmail MCP to search and read emails,
-extracts job URLs, and inserts them into the jobs table.
+Calls Gmail REST API directly using stored OAuth tokens — no Claude agent,
+no context-limit issues. Fetches full MIME messages so job IDs embedded in
+HTML (rejection emails, "Top Jobs" sections) are also captured.
+
+Searches both senders:
+  - jobalerts-noreply@linkedin.com  (job alert digests)
+  - jobs-noreply@linkedin.com        (rejection / update emails with "Top Jobs")
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-import os
 import re
-import subprocess
-import tempfile
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from rich.console import Console
 
-from applypilot.config import APP_DIR
 from applypilot.database import get_connection
 
 log = logging.getLogger(__name__)
 console = Console()
 
-# Gmail MCP config — no playwright needed
-_GMAIL_MCP_CONFIG = {
-    "mcpServers": {
-        "gmail": {
-            "command": "npx",
-            "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
-        }
-    }
-}
+_CREDS_PATH = Path.home() / ".gmail-mcp" / "credentials.json"
+_KEYS_PATH  = Path.home() / ".gmail-mcp" / "gcp-oauth.keys.json"
 
-# Only allow read operations — never send/modify
-_DISALLOWED_TOOLS = (
-    "mcp__gmail__draft_email,mcp__gmail__send_email,mcp__gmail__modify_email,"
-    "mcp__gmail__delete_email,mcp__gmail__download_attachment,"
-    "mcp__gmail__batch_modify_emails,mcp__gmail__batch_delete_emails,"
-    "mcp__gmail__create_label,mcp__gmail__update_label,"
-    "mcp__gmail__delete_label,mcp__gmail__get_or_create_label,"
-    "mcp__gmail__list_email_labels,mcp__gmail__create_filter,"
-    "mcp__gmail__list_filters,mcp__gmail__get_filter,"
-    "mcp__gmail__delete_filter"
-)
+_JOB_ID_RE = re.compile(r'linkedin\.com/(?:comm/)?jobs/view/(\d{6,12})')
 
-_URL_PATTERN = re.compile(
-    r'https://www\.linkedin\.com/(?:comm/)?jobs/view/(\d+)'
-)
+_GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
-def clean_linkedin_url(raw_url: str) -> str | None:
-    """Strip tracking params and /comm/ prefix, return canonical job URL."""
-    match = re.search(r'linkedin\.com/(?:comm/)?jobs/view/(\d+)', raw_url)
-    if match:
-        return f"https://www.linkedin.com/jobs/view/{match.group(1)}"
-    return None
+# ── OAuth helpers ────────────────────────────────────────────────────────────
+
+def _load_tokens() -> dict:
+    if not _CREDS_PATH.exists():
+        raise FileNotFoundError(f"Gmail credentials not found: {_CREDS_PATH}")
+    return json.loads(_CREDS_PATH.read_text())
 
 
-def _build_prompt(days: int) -> str:
-    return f"""Search Gmail for LinkedIn job alert emails and extract all job URLs.
-
-Steps:
-1. Search Gmail with query: "from:jobalerts-noreply@linkedin.com newer_than:{days}d"
-   Use maxResults=500 to get all emails.
-2. The search results will include email snippets. Extract job IDs from those snippets first
-   using the pattern /jobs/view/(\\d+).
-3. For any emails whose snippets did not contain job URLs, read those emails individually.
-4. Collect all unique job IDs found across all emails and snippets.
-
-CRITICAL RULES:
-- You MUST process every single email returned by the search — do not stop early.
-- Do NOT explain what you would do or summarize remaining work. Just do it.
-- Do NOT output anything until you have processed ALL emails.
-- Never say "the complete extraction would require additional processing" — complete it yourself.
-
-When done, output ONLY a JSON object in this exact format (no other text):
-{{
-  "emails_read": <number of emails processed>,
-  "job_ids": [<list of unique job_id strings, e.g. "4391774138">]
-}}
-
-Do not include any explanation, preamble, or text outside the JSON object.
-Output the raw JSON only."""
+def _save_tokens(tokens: dict) -> None:
+    _CREDS_PATH.write_text(json.dumps(tokens))
 
 
-def _run_claude_agent(prompt: str) -> tuple[str, int]:
-    """Spawn claude CLI with Gmail MCP and return (full_text_output, returncode)."""
-    mcp_path = APP_DIR / ".mcp-email-explore.json"
-    mcp_path.write_text(json.dumps(_GMAIL_MCP_CONFIG), encoding="utf-8")
+def _refresh_access_token(tokens: dict) -> dict:
+    keys = json.loads(_KEYS_PATH.read_text())["installed"]
+    resp = httpx.post("https://oauth2.googleapis.com/token", data={
+        "client_id":     keys["client_id"],
+        "client_secret": keys["client_secret"],
+        "refresh_token": tokens["refresh_token"],
+        "grant_type":    "refresh_token",
+    })
+    resp.raise_for_status()
+    new = resp.json()
+    tokens["access_token"] = new["access_token"]
+    tokens["expiry_date"]  = int(time.time() * 1000) + new.get("expires_in", 3600) * 1000
+    _save_tokens(tokens)
+    return tokens
 
-    cmd = [
-        "claude.cmd",
-        "--model", "claude-haiku-4-5-20251001",
-        "-p",
-        "--mcp-config", str(mcp_path),
-        "--permission-mode", "bypassPermissions",
-        "--no-session-persistence",
-        "--disallowedTools", _DISALLOWED_TOOLS,
-        "--output-format", "stream-json",
-        "--verbose", "-",
-    ]
 
-    env = os.environ.copy()
-    env.pop("CLAUDECODE", None)
-    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+def _get_access_token() -> str:
+    tokens = _load_tokens()
+    # Refresh if expired or expiring within 5 minutes
+    if tokens.get("expiry_date", 0) < (time.time() * 1000 + 300_000):
+        log.debug("Refreshing Gmail access token")
+        tokens = _refresh_access_token(tokens)
+    return tokens["access_token"]
 
-    log.info("Spawning Claude agent for email exploration")
 
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            cwd=str(APP_DIR),
-        )
+# ── Gmail API calls ──────────────────────────────────────────────────────────
 
-        proc.stdin.write(prompt)
-        proc.stdin.close()
+def _gmail_get(path: str, params: dict | None = None) -> dict:
+    token = _get_access_token()
+    resp = httpx.get(
+        f"{_GMAIL_BASE}{path}",
+        headers={"Authorization": f"Bearer {token}"},
+        params=params or {},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
-        text_parts: list[str] = []
-        for line in proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
+
+def _search_messages(query: str, max_results: int = 500) -> list[str]:
+    """Return list of message IDs matching query."""
+    ids: list[str] = []
+    page_token: str | None = None
+
+    while True:
+        params: dict = {"q": query, "maxResults": min(max_results - len(ids), 500)}
+        if page_token:
+            params["pageToken"] = page_token
+
+        data = _gmail_get("/messages", params)
+        for msg in data.get("messages", []):
+            ids.append(msg["id"])
+
+        page_token = data.get("nextPageToken")
+        if not page_token or len(ids) >= max_results:
+            break
+
+    return ids
+
+
+def _extract_ids_from_part(part: dict) -> list[str]:
+    """Recursively extract job IDs from a MIME message part (handles multipart)."""
+    ids: list[str] = []
+    mime = part.get("mimeType", "")
+
+    if "multipart" in mime:
+        for sub in part.get("parts", []):
+            ids.extend(_extract_ids_from_part(sub))
+    elif mime in ("text/plain", "text/html"):
+        body_data = part.get("body", {}).get("data", "")
+        if body_data:
             try:
-                msg = json.loads(line)
-                msg_type = msg.get("type")
-                if msg_type == "assistant":
-                    for block in msg.get("message", {}).get("content", []):
-                        if block.get("type") == "text":
-                            text_parts.append(block["text"])
-                        elif block.get("type") == "tool_use":
-                            name = block.get("name", "").replace("mcp__gmail__", "gmail:")
-                            log.debug("Agent tool call: %s", name)
-                elif msg_type == "result":
-                    result_text = msg.get("result", "")
-                    if result_text:
-                        text_parts.append(result_text)
-            except json.JSONDecodeError:
-                text_parts.append(line)
+                text = base64.urlsafe_b64decode(body_data + "==").decode("utf-8", errors="replace")
+                ids.extend(_JOB_ID_RE.findall(text))
+            except Exception:
+                pass
 
-        proc.wait()
-        return "\n".join(text_parts), proc.returncode
+    return ids
 
-    except FileNotFoundError:
-        log.error("claude.cmd not found — is Claude Code CLI installed?")
-        return "", 1
+
+def _get_job_ids_from_message(msg_id: str) -> list[str]:
+    """Fetch a single message and return all LinkedIn job IDs found in it."""
+    try:
+        data = _gmail_get(f"/messages/{msg_id}", {"format": "full"})
+        payload = data.get("payload", {})
+        ids = _extract_ids_from_part(payload)
+        # Also check snippet for any IDs
+        snippet = data.get("snippet", "")
+        ids.extend(_JOB_ID_RE.findall(snippet))
+        return list(dict.fromkeys(ids))  # dedupe, preserve order
     except Exception as exc:
-        log.error("Agent error: %s", exc)
-        return "", 1
+        log.debug("Failed to fetch message %s: %s", msg_id, exc)
+        return []
 
 
-def _extract_job_ids_from_text(text: str) -> tuple[int, list[str]]:
-    """Try to parse agent JSON output. Fall back to regex on raw text."""
-    # Try JSON parse first
-    json_match = re.search(r'\{[^{}]*"job_ids"\s*:\s*\[.*?\][^{}]*\}', text, re.DOTALL)
-    if json_match:
-        try:
-            data = json.loads(json_match.group(0))
-            emails_read = data.get("emails_read", 0)
-            job_ids = [str(jid) for jid in data.get("job_ids", []) if str(jid).isdigit()]
-            return emails_read, job_ids
-        except json.JSONDecodeError:
-            pass
-
-    # Fallback: regex over full output
-    log.warning("Could not parse agent JSON — falling back to regex extraction")
-    ids = list(dict.fromkeys(_URL_PATTERN.findall(text)))  # preserve order, dedupe
-    return 0, ids
-
+# ── Insert ───────────────────────────────────────────────────────────────────
 
 def _insert_jobs(job_ids: list[str]) -> tuple[int, int]:
-    """Insert job URLs into the jobs table. Returns (inserted, skipped)."""
     conn = get_connection()
-    now = datetime.utcnow().isoformat()
-    inserted = 0
-    skipped = 0
+    now = datetime.now(timezone.utc).isoformat()
 
+    # Build set of already-applied job IDs to skip
+    applied_urls = {
+        row[0] for row in conn.execute(
+            "SELECT url FROM jobs WHERE applied_at IS NOT NULL OR apply_status = 'applied'"
+        ).fetchall()
+    }
+    applied_ids = {
+        m.group(1)
+        for url in applied_urls
+        if (m := _JOB_ID_RE.search(url))
+    }
+
+    inserted = skipped = 0
     for job_id in job_ids:
+        if job_id in applied_ids:
+            skipped += 1
+            continue
         url = f"https://www.linkedin.com/jobs/view/{job_id}"
         conn.execute(
-            """
-            INSERT OR IGNORE INTO jobs (url, site, discovered_at)
-            VALUES (?, 'linkedin', ?)
-            """,
+            "INSERT OR IGNORE INTO jobs (url, site, discovered_at) VALUES (?, 'linkedin', ?)",
             (url, now),
         )
-        changed = conn.execute("SELECT changes()").fetchone()[0]
-        if changed:
+        if conn.execute("SELECT changes()").fetchone()[0]:
             inserted += 1
         else:
             skipped += 1
-
     conn.commit()
     return inserted, skipped
 
 
+# ── Main ─────────────────────────────────────────────────────────────────────
+
 def run_email_explore(days: int = 30) -> dict:
-    """Main entry point for the email explore pipeline.
-
-    Args:
-        days: How many days back to search Gmail.
-
-    Returns:
-        Dict with keys: emails, urls_found, inserted, skipped
-    """
     from applypilot.config import load_env
     load_env()
 
     console.print(f"\n[bold cyan]Email Explore[/bold cyan]  [dim]searching last {days} days[/dim]")
 
-    prompt = _build_prompt(days)
+    query = (
+        f"(from:jobalerts-noreply@linkedin.com OR from:jobs-noreply@linkedin.com) "
+        f"newer_than:{days}d"
+    )
 
-    console.print("[dim]Spawning Claude agent with Gmail MCP...[/dim]")
-    output_text, returncode = _run_claude_agent(prompt)
+    log.info("Searching Gmail: %s", query)
+    msg_ids = _search_messages(query, max_results=500)
+    console.print(f"  Found [cyan]{len(msg_ids)}[/cyan] emails — extracting job IDs…")
 
-    if returncode and returncode < 0:
-        console.print(f"[red]Agent was killed (returncode={returncode})[/red]")
-        return {"emails": 0, "urls_found": 0, "inserted": 0, "skipped": 0}
+    all_ids: list[str] = []
+    for i, msg_id in enumerate(msg_ids, 1):
+        ids = _get_job_ids_from_message(msg_id)
+        all_ids.extend(ids)
+        if i % 25 == 0:
+            console.print(f"  [dim]Processed {i}/{len(msg_ids)} emails, {len(set(all_ids))} unique IDs so far[/dim]")
 
-    if not output_text.strip():
-        console.print("[red]Agent returned no output.[/red]")
-        return {"emails": 0, "urls_found": 0, "inserted": 0, "skipped": 0}
+    unique_ids = list(dict.fromkeys(all_ids))
+    console.print(f"  URLs found:   [cyan]{len(unique_ids)}[/cyan]")
 
-    log.debug("Agent raw output:\n%s", output_text)
-    console.print(f"[dim]Agent output (last 500 chars):[/dim]\n{output_text[-500:]}")
-
-    emails_read, job_ids = _extract_job_ids_from_text(output_text)
-
-    # Deduplicate
-    job_ids = list(dict.fromkeys(job_ids))
-
-    console.print(f"  Emails read:  [cyan]{emails_read}[/cyan]")
-    console.print(f"  URLs found:   [cyan]{len(job_ids)}[/cyan]")
-
-    if not job_ids:
+    if not unique_ids:
         console.print("[yellow]No job URLs found in emails.[/yellow]")
-        return {"emails": emails_read, "urls_found": 0, "inserted": 0, "skipped": 0}
+        return {"emails": len(msg_ids), "urls_found": 0, "inserted": 0, "skipped": 0}
 
-    inserted, skipped = _insert_jobs(job_ids)
-
+    inserted, skipped = _insert_jobs(unique_ids)
     console.print(f"  Inserted:     [green]{inserted}[/green]")
-    console.print(f"  Skipped (dup): [dim]{skipped}[/dim]")
+    console.print(f"  Skipped (dup):[dim]{skipped}[/dim]")
 
     return {
-        "emails": emails_read,
-        "urls_found": len(job_ids),
+        "emails": len(msg_ids),
+        "urls_found": len(unique_ids),
         "inserted": inserted,
         "skipped": skipped,
     }
