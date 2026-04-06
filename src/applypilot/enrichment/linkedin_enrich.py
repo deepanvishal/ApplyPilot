@@ -11,8 +11,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import urllib3
 import requests
 from bs4 import BeautifulSoup
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from applypilot.config import load_env
 from applypilot.database import get_connection
@@ -62,13 +65,14 @@ def fetch_linkedin_guest(job_id: str, proxy: str | None) -> dict:
     url = GUEST_API.format(job_id=job_id)
     proxies = {"http": proxy, "https": proxy} if proxy else None
 
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             r = requests.get(
                 url,
                 headers=HEADERS,
                 proxies=proxies,
                 timeout=15,
+                verify=False,
             )
 
             if r.status_code == 404:
@@ -76,7 +80,7 @@ def fetch_linkedin_guest(job_id: str, proxy: str | None) -> dict:
                 return {}
 
             if r.status_code == 429:
-                if attempt == 0:
+                if attempt < 2:
                     log.warning("Rate limited on job %s, waiting 5s...", job_id)
                     time.sleep(5)
                     continue
@@ -115,8 +119,8 @@ def fetch_linkedin_guest(job_id: str, proxy: str | None) -> dict:
 
         except requests.RequestException as exc:
             log.warning("Request error for job %s: %s", job_id, exc)
-            if attempt == 0:
-                time.sleep(2)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
                 continue
             return {}
 

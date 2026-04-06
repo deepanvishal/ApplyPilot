@@ -658,16 +658,21 @@ def run_genie_command(
     dry_run: bool = typer.Option(False, "--dry-run", help="Discover but do not insert to DB."),
     ats: list[str] = typer.Option(None, "--ats", help="ATS types to include: workday greenhouse ashby lever bamboohr"),
     workers: int = typer.Option(5, "--workers", help="Worker count override for Workday only. Other ATS types use preset counts (greenhouse=15, ashby=15, lever=15, bamboohr=10)."),
+    full: bool = typer.Option(False, "--full", help="Run all portals including ones with no prior jobs. Default is incremental (productive portals only)."),
 ) -> None:
     """Discover jobs from all ATS portals into the genie_jobs table.
 
+    Default mode is incremental — only runs portals that previously had matching jobs.
+    Use --full to scrape all ~12k portals.
+
     Examples:
-        applypilot run-genie
+        applypilot run-genie                          # incremental (default)
+        applypilot run-genie --full                   # all portals
         applypilot run-genie --limit 50
         applypilot run-genie --no-resume
         applypilot run-genie --dry-run
         applypilot run-genie --ats workday --ats greenhouse
-        applypilot run-genie --workers 3   # override Workday workers only
+        applypilot run-genie --workers 3
     """
     _bootstrap()
     from applypilot.genie.pipeline import run_genie
@@ -677,6 +682,7 @@ def run_genie_command(
         dry_run=dry_run,
         ats_types=ats if ats else None,
         workers=workers,
+        incremental=not full,
     )
     if result.get("errors"):
         raise typer.Exit(code=1)
@@ -796,6 +802,216 @@ def exploreserper(
     console.print(f"  Credits used: {result['total_credits']}")
     if dry_run:
         console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
+
+
+@app.command(name="log-outcome")
+def log_outcome_command(
+    company: str = typer.Argument(..., help="Company name."),
+    outcome: str = typer.Argument(..., help="Outcome: responded or no_response."),
+    notes: str = typer.Option(None, "--notes", help="Optional notes."),
+) -> None:
+    """Record a company-level outcome (responded or no_response).
+
+    One entry per company. A company that responded stays responded.
+
+    Examples:
+        applypilot log-outcome "Stripe" responded
+        applypilot log-outcome "Google" no_response
+        applypilot log-outcome "Capital One" responded --notes "recruiter screen scheduled"
+    """
+    _bootstrap()
+    from applypilot.outcomes.manual import log_outcome
+    result = log_outcome(company=company, outcome=outcome, notes=notes)
+    status = "responded" if result["responded"] else "no_response"
+    console.print(f"[green]Logged:[/green] {result['company_name']} | tier={result['tier']} | {status}")
+
+
+@app.command(name="sync-outcomes")
+def sync_outcomes_command(
+    days: int = typer.Option(90, "--days", help="How many days back to scan Gmail."),
+) -> None:
+    """Scan Gmail for recruiter responses and write to company_signals.
+
+    Examples:
+        applypilot sync-outcomes
+        applypilot sync-outcomes --days 60
+    """
+    _bootstrap()
+    from applypilot.outcomes.gmail_sync import run_gmail_sync
+    console.print("\n[bold cyan]Outcome Sync[/bold cyan]")
+    result = run_gmail_sync(days=days)
+    console.print(f"  Emails scanned:    [cyan]{result['emails_scanned']}[/cyan]")
+    console.print(f"  Outcomes found:    [cyan]{result['outcomes_found']}[/cyan]")
+    console.print(f"  Companies updated: [green]{result['companies_updated']}[/green]")
+
+
+@app.command(name="build-signals")
+def build_signals_command() -> None:
+    """Show summary of company_signals table.
+
+    Examples:
+        applypilot build-signals
+    """
+    _bootstrap()
+    from applypilot.outcomes.aggregator import get_summary
+    result = get_summary()
+    console.print(f"Companies tracked: {result['total_companies']}")
+    console.print(f"Responded:         [green]{result['responded']}[/green]")
+    console.print(f"No response:       {result['no_response']}")
+    console.print(f"Response rate:     [cyan]{result['response_rate']:.0%}[/cyan]")
+
+
+@app.command(name="show-signals")
+def show_signals_command(
+    limit: int = typer.Option(50, "--limit", help="Rows to show."),
+    responded_only: bool = typer.Option(False, "--responded", help="Show only companies that responded."),
+) -> None:
+    """Show company signals table.
+
+    Examples:
+        applypilot show-signals
+        applypilot show-signals --responded
+    """
+    _bootstrap()
+    from rich.table import Table
+    from applypilot.database import get_connection
+    conn = get_connection()
+
+    where = "WHERE responded = 1" if responded_only else ""
+    rows = conn.execute(f"""
+        SELECT company_name, tier, responded, notes, updated_at
+        FROM company_signals
+        {where}
+        ORDER BY responded DESC, company_name
+        LIMIT ?
+    """, (limit,)).fetchall()
+
+    if not rows:
+        console.print("[yellow]No signals yet. Run log-outcome or sync-outcomes first.[/yellow]")
+        return
+
+    table = Table(title="Company Signals", show_header=True, header_style="bold cyan")
+    table.add_column("Company", style="bold")
+    table.add_column("Tier")
+    table.add_column("Responded", justify="center")
+    table.add_column("Notes")
+
+    for r in rows:
+        responded = "[green]YES[/green]" if r["responded"] else "[dim]no[/dim]"
+        table.add_row(r["company_name"], r["tier"] or "?", responded, r["notes"] or "")
+    console.print(table)
+
+
+@app.command(name="optimize-queue")
+def optimize_queue_command(
+    batch_size: int = typer.Option(200, "--batch-size", help="Total jobs in apply batch."),
+    preview: bool = typer.Option(False, "--preview", help="Show allocation plan only, don't output queue."),
+    min_score: int = typer.Option(7, "--min-score", help="Minimum fit score."),
+) -> None:
+    """Build an optimally segmented apply queue.
+
+    Allocates apply slots across company tiers proportional to response rates.
+    Jobs within each segment are ordered by fit_score DESC.
+
+    Examples:
+        applypilot optimize-queue --preview
+        applypilot optimize-queue --batch-size 100
+    """
+    _bootstrap()
+    from rich.table import Table
+    from applypilot.optimization.allocator import get_allocation_preview, build_apply_queue
+
+    console.print(f"\n[bold cyan]Optimize Queue[/bold cyan]  batch={batch_size}  min_score={min_score}\n")
+
+    preview_data = get_allocation_preview(batch_size=batch_size, min_score=min_score)
+
+    table = Table(title="Segment Allocation", header_style="bold cyan")
+    table.add_column("Segment")
+    table.add_column("Bayesian Rate", justify="right")
+    table.add_column("Available", justify="right")
+    table.add_column("Slots", justify="right")
+
+    for r in preview_data:
+        rate_str = f"{r['bayesian_rate']:.2f}%"
+        rate_fmt = f"[green]{rate_str}[/green]" if r["bayesian_rate"] > 5 else rate_str
+        table.add_row(r["segment"], rate_fmt, str(r["available"]), str(r["slots"]))
+
+    console.print(table)
+
+    if not preview:
+        queue = build_apply_queue(batch_size=batch_size, min_score=min_score)
+        console.print(f"\n[green]Queue built: {len(queue)} jobs[/green]")
+        console.print("[dim]Top 10:[/dim]")
+        for job in queue[:10]:
+            console.print(f"  [{job['segment']:<10}] score={job['fit_score']}  {job['company'][:25]} — {job['title'][:45]}")
+
+
+@app.command(name="classify-companies")
+def classify_companies_command(
+    batch_size: int = typer.Option(50, "--batch-size", help="Companies per LLM call."),
+) -> None:
+    """Classify all applied companies using LLM — canonical name + tier.
+
+    Reads distinct company names from jobs table, batches to LLM,
+    updates company_signals with canonical name and tier.
+
+    Examples:
+        applypilot classify-companies
+        applypilot classify-companies --batch-size 30
+    """
+    _bootstrap()
+    from applypilot.optimization.classify import run_classify_companies
+    console.print("\n[bold cyan]Company Classification[/bold cyan]")
+    result = run_classify_companies(batch_size=batch_size)
+    console.print(f"  Total companies:  [cyan]{result['total']}[/cyan]")
+    console.print(f"  Updated:          [green]{result['updated']}[/green]")
+    console.print(f"  Errors:           [red]{result['errors']}[/red]" if result['errors'] else "  Errors:           0")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host."),
+    port: int = typer.Option(8765, "--port", "-p", help="Port to listen on."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser automatically."),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes (dev mode)."),
+) -> None:
+    """Start the ApplyPilot Web UI server.
+
+    Opens a browser at http://localhost:<port> after starting.
+
+    Examples:
+        applypilot serve
+        applypilot serve --port 9000
+        applypilot serve --no-browser
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]uvicorn not installed.[/red] Run: pip install 'applypilot[webui]'")
+        raise typer.Exit(code=1)
+
+    _bootstrap()
+
+    url = f"http://{host}:{port}"
+    console.print(f"\n[bold blue]ApplyPilot Web UI[/bold blue]")
+    console.print(f"  URL:  [cyan]{url}[/cyan]")
+    console.print(f"  API:  [cyan]{url}/api/stats[/cyan]")
+    console.print(f"  Press [bold]Ctrl+C[/bold] to stop\n")
+
+    if not no_browser:
+        import threading, webbrowser, time
+        def _open():
+            time.sleep(1.5)
+            webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
+
+    uvicorn.run(
+        "applypilot.server:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="warning",
+    )
 
 
 if __name__ == "__main__":

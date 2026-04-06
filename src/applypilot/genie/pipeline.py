@@ -165,39 +165,63 @@ def run_genie(
     dry_run: bool = False,
     ats_types: list[str] | None = None,
     workers: int = 5,
+    incremental: bool = True,
 ) -> dict:
     """Discover jobs from all ATS portals into the genie_jobs table.
 
     Args:
-        limit:      Max portals to explore (0 = no limit).
-        resume:     If True, skip already-completed portals.
-        dry_run:    Log what would be inserted, but don't write to DB.
-        ats_types:  Filter to specific ATS types (None = all).
-        workers:    Worker count override for Workday only. All other ATS types
-                    use their preset counts from ATS_WORKERS.
+        limit:       Max portals to explore (0 = no limit).
+        resume:      If True, skip already-completed portals.
+        dry_run:     Log what would be inserted, but don't write to DB.
+        ats_types:   Filter to specific ATS types (None = all).
+        workers:     Worker count override for Workday only. All other ATS types
+                     use their preset counts from ATS_WORKERS.
+        incremental: If True (default), only run portals that previously had jobs.
+                     If False (--full), run all portals.
 
     Returns:
         Stats dict with counts.
     """
     from applypilot.config import load_env
+    from applypilot.genie.db import sync_portal_jobs_count, dedup_portals, promote_genie_jobs_to_jobs
     load_env()
+
+    # --- Step 1: Sync portals.jobs_found from genie_jobs ---
+    console.print("\n[dim]Step 1/5 — Syncing portal job counts...[/dim]")
+    if not dry_run:
+        synced = sync_portal_jobs_count()
+        console.print(f"  Portals resynced: [cyan]{synced}[/cyan]")
+
+    # --- Step 2: Dedup portals ---
+    console.print("[dim]Step 2/5 — Deduplicating portals...[/dim]")
+    if not dry_run:
+        removed = dedup_portals()
+        if removed:
+            console.print(f"  Duplicate portal rows removed: [yellow]{removed}[/yellow]")
+        else:
+            console.print("  [dim]No duplicates found[/dim]")
 
     # Build effective worker map: presets for all, --workers overrides workday
     ats_worker_map = dict(ATS_WORKERS)
     ats_worker_map["workday"] = workers
 
     titles = _load_titles()
-    portals = get_portals_for_run(limit, resume, ats_types)
+    portals = get_portals_for_run(limit, resume, ats_types, incremental=incremental)
+
+    mode_label = "[yellow]incremental[/yellow]" if incremental else "[magenta]full[/magenta]"
 
     if not portals:
-        console.print("[yellow]No portals to explore. All may already be completed.[/yellow]")
-        console.print("[dim]Use --no-resume to restart from scratch.[/dim]")
+        if incremental:
+            console.print("[yellow]No productive portals found. Try --full to run all portals.[/yellow]")
+        else:
+            console.print("[yellow]No portals to explore. All may already be completed.[/yellow]")
+            console.print("[dim]Use --no-resume to restart from scratch.[/dim]")
         return {"portals_explored": 0, "jobs_inserted": 0, "errors": 0}
 
     ats_counts = Counter(p["ats_type"] for p in portals)
     console.print(
-        f"\n[bold cyan]Genie Portal Explorer[/bold cyan]  "
-        f"[dim]portals={len(portals)}  titles={len(titles)}  "
+        f"\n[bold cyan]Step 3/5 — Genie Portal Explorer[/bold cyan]  "
+        f"[dim]mode={mode_label}  portals={len(portals)}  titles={len(titles)}  "
         f"resume={resume}  dry_run={dry_run}[/dim]"
     )
     console.print(
@@ -275,9 +299,23 @@ def run_genie(
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted — waiting for active threads...[/yellow]")
-        console.print("[dim]Resume with: applypilot run-genie --resume[/dim]")
+        console.print("[dim]Resume with: applypilot run-genie[/dim]")
         _print_summary(stats)
         return stats
+
+    # --- Step 4: Final sync after fetch ---
+    console.print("\n[dim]Step 4/5 — Re-syncing portal job counts after fetch...[/dim]")
+    if not dry_run:
+        sync_portal_jobs_count()
+
+    # --- Step 5: Promote genie_jobs → jobs ---
+    console.print("[dim]Step 5/5 — Promoting genie_jobs to jobs table...[/dim]")
+    if not dry_run:
+        promoted = promote_genie_jobs_to_jobs()
+        stats["jobs_promoted"] = promoted
+        console.print(f"  New jobs added to pipeline: [green]{promoted}[/green]")
+    else:
+        stats["jobs_promoted"] = 0
 
     _print_summary(stats)
     return stats
@@ -292,8 +330,9 @@ def _print_summary(stats: dict) -> None:
     table.add_row("Portals explored", str(stats.get("portals_explored", 0)))
     table.add_row("Portals with matches", str(stats.get("portals_with_jobs", 0)))
     table.add_row("Jobs fetched", str(stats.get("jobs_fetched", 0)))
-    table.add_row("Jobs inserted", f"[green]{stats.get('jobs_inserted', 0)}[/green]")
+    table.add_row("Jobs inserted (genie)", f"[green]{stats.get('jobs_inserted', 0)}[/green]")
     table.add_row("Jobs skipped (dup)", str(stats.get("jobs_skipped", 0)))
+    table.add_row("Jobs promoted to pipeline", f"[green]{stats.get('jobs_promoted', 0)}[/green]")
     table.add_row("Errors", f"[red]{stats.get('errors', 0)}[/red]" if stats.get("errors") else "0")
 
     console.print(table)

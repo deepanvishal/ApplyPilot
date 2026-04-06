@@ -91,6 +91,10 @@ def score_job(resume_text: str, job: dict) -> dict:
     Returns:
         {"score": int, "keywords": str, "reasoning": str}
     """
+    from applypilot.utils.location import is_us_location
+    if not is_us_location(job.get("location") or ""):
+        return {"score": 1, "keywords": "", "reasoning": "non_us_location"}
+
     description = job.get("full_description") or ""
     job_text = (
         f"TITLE: {job['title']}\n"
