@@ -804,6 +804,82 @@ def exploreserper(
         console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
 
 
+@app.command(name="exploregooglejobs")
+def exploregooglejobs(
+    date_filter: str = typer.Option(
+        "7 days",
+        "--date-filter",
+        help="Date range: '1 day', '7 days', '1 month'. Default: '7 days'.",
+    ),
+    workers: int = typer.Option(
+        5,
+        "--workers",
+        help="Parallel workers for combo processing.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show what would be inserted without writing to DB.",
+    ),
+    titles: list[str] = typer.Option(
+        None,
+        "--title",
+        help="Override titles (repeatable: --title 'Data Scientist' --title 'ML Engineer')",
+    ),
+    locations: list[str] = typer.Option(
+        None,
+        "--location",
+        help="Override locations (repeatable: --location 'New York' --location 'Remote')",
+    ),
+) -> None:
+    """Discover jobs via SerpAPI Google Jobs engine.
+
+    Queries Google Jobs directly — surfaces direct ATS postings (Workday, Greenhouse,
+    Lever, Ashby) and company career pages, not just LinkedIn. Full job descriptions
+    are captured immediately. Results go into the serper_jobs table.
+
+    Examples:
+        applypilot exploregooglejobs
+        applypilot exploregooglejobs --date-filter "1 month"
+        applypilot exploregooglejobs --date-filter "1 day"
+        applypilot exploregooglejobs --dry-run
+        applypilot exploregooglejobs --title "Data Scientist" --location "New York, NY"
+    """
+    _bootstrap()
+    from applypilot.serper.pipeline import run_serpapi_jobs
+    result = run_serpapi_jobs(
+        date_filter=date_filter,
+        workers=workers,
+        dry_run=dry_run,
+        titles_override=titles if titles else None,
+        locations_override=locations if locations else None,
+    )
+    console.print("\n[bold]Google Jobs Explore Complete[/bold]")
+    console.print(f"  Jobs found:   {result['total_jobs']}")
+    console.print(f"  Inserted:     {result['total_inserted']}")
+    console.print(f"  Skipped:      {result['total_skipped']}")
+    console.print(f"  Credits used: {result['total_credits']}")
+    if dry_run:
+        console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
+
+
+@app.command(name="promote-serper-jobs")
+def promote_serper_jobs_command() -> None:
+    """Promote all serper_jobs into the jobs table.
+
+    Copies every record from serper_jobs into jobs (INSERT OR IGNORE),
+    using apply_url as the application_url when available.
+
+    Example:
+        applypilot promote-serper-jobs
+    """
+    _bootstrap()
+    from applypilot.serper.pipeline import promote_serper_jobs_to_jobs
+    inserted = promote_serper_jobs_to_jobs()
+    console.print(f"\n[bold]Serper -> Jobs Promotion Complete[/bold]")
+    console.print(f"  New jobs inserted: {inserted}")
+
+
 @app.command(name="log-outcome")
 def log_outcome_command(
     company: str = typer.Argument(..., help="Company name."),

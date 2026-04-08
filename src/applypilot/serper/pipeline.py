@@ -2,6 +2,12 @@
 
 Searches Google (via Serper.dev) for LinkedIn job postings by title × location,
 inserts new URLs into the serper_jobs table. Never touches jobs or genie_jobs.
+
+Also provides run_serpapi_jobs() which queries the SerpAPI Google Jobs engine
+directly, returning structured job data (title, company, full description,
+direct ATS apply links) without requiring LinkedIn as an intermediary.
+
+promote_serper_jobs_to_jobs() syncs serper_jobs → jobs table.
 """
 
 from __future__ import annotations
@@ -22,10 +28,77 @@ from applypilot.database import get_connection
 log = logging.getLogger(__name__)
 
 SERPER_API_URL = "https://google.serper.dev/search"
+SERPAPI_JOBS_URL = "https://serpapi.com/search"
 MAX_PAGES = 100
 RESULTS_PER_PAGE = 10
 DEFAULT_TBS = "qdr:w"
 DEFAULT_WORKERS = 3
+
+# ---------------------------------------------------------------------------
+# SerpAPI Google Jobs — ATS detection helpers
+# ---------------------------------------------------------------------------
+
+_PREFERRED_ATS_DOMAINS = {
+    "myworkdayjobs.com", "greenhouse.io", "lever.co", "ashbyhq.com",
+    "bamboohr.com", "smartrecruiters.com", "jobvite.com", "taleo.net",
+    "icims.com", "successfactors.com", "recruitingbypaige.com",
+}
+
+_AGGREGATOR_DOMAINS = {
+    "theladders.com", "monster.com", "ziprecruiter.com", "glassdoor.com",
+    "bebee.com", "builtinsf.com", "builtinla.com", "builtinboston.com",
+    "builtinnyc.com", "experteer.com", "dice.com", "careerjet.com",
+    "simplyhired.com", "snagajob.com", "jooble.org", "talent.com",
+}
+
+
+def _strip_utm(url: str) -> str:
+    return url.split("?")[0].rstrip("/")
+
+
+def _infer_ats_type(url: str) -> str:
+    u = url.lower()
+    if "myworkdayjobs.com" in u:
+        return "workday"
+    if "greenhouse.io" in u:
+        return "greenhouse"
+    if "lever.co" in u:
+        return "lever"
+    if "ashbyhq.com" in u:
+        return "ashby"
+    if "bamboohr.com" in u:
+        return "bamboohr"
+    if "smartrecruiters.com" in u:
+        return "smartrecruiters"
+    if "jobvite.com" in u:
+        return "jobvite"
+    if "linkedin.com" in u:
+        return "linkedin"
+    if "indeed.com" in u:
+        return "indeed"
+    return "direct"
+
+
+def _pick_best_apply_url(apply_options: list[dict]) -> str | None:
+    """Pick the best apply URL: direct ATS > LinkedIn/Indeed > other, skip aggregators."""
+    if not apply_options:
+        return None
+
+    preferred, acceptable, fallback = [], [], []
+
+    for opt in apply_options:
+        url = _strip_utm(opt.get("link", ""))
+        if not url:
+            continue
+        u = url.lower()
+        if any(d in u for d in _PREFERRED_ATS_DOMAINS):
+            preferred.append(url)
+        elif "linkedin.com" in u or "indeed.com" in u:
+            acceptable.append(url)
+        elif not any(d in u for d in _AGGREGATOR_DOMAINS):
+            fallback.append(url)
+
+    return (preferred or acceptable or fallback or [_strip_utm(apply_options[0].get("link", ""))])[0] or None
 
 _DEFAULT_TITLES = [
     "Lead Data Scientist",
@@ -301,3 +374,291 @@ def run_serper(
     log.info("=" * 60)
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# SerpAPI Google Jobs pipeline
+# ---------------------------------------------------------------------------
+
+SERPAPI_MAX_PAGES = 10  # safety cap per combo; stop-on-dupes kicks in earlier
+
+
+def _serpapi_jobs_page(
+    api_key: str,
+    title: str,
+    location: str,
+    date_filter: str,
+    start: int,
+) -> list[dict]:
+    """Fetch one page of Google Jobs results via SerpAPI. Returns raw job dicts."""
+    params = {
+        "engine": "google_jobs",
+        "q": title,
+        "location": location,
+        "hl": "en",
+        "gl": "us",
+        "chips": f"date_posted:{date_filter}",
+        "api_key": api_key,
+        "start": start,
+    }
+    try:
+        for attempt in range(3):
+            r = requests.get(SERPAPI_JOBS_URL, params=params, timeout=20)
+            if r.status_code == 429:
+                log.warning("SerpAPI 429 for %r %r start=%d (attempt %d), retrying...", title, location, start, attempt + 1)
+                time.sleep(3)
+                continue
+            r.raise_for_status()
+            break
+        else:
+            return []
+        return r.json().get("jobs_results", [])
+    except Exception as exc:
+        log.warning("SerpAPI error for %r %r start=%d: %s", title, location, start, exc)
+        return []
+
+
+def _process_serpapi_combo(
+    api_key: str,
+    title: str,
+    location: str,
+    date_filter: str,
+    dry_run: bool,
+    lock: threading.Lock,
+) -> dict:
+    """Process one title × location combo, paginating until all dupes or no results."""
+    conn = get_connection()
+    inserted = 0
+    skipped = 0
+    pages_fetched = 0
+    total_jobs = 0
+
+    for page in range(SERPAPI_MAX_PAGES):
+        start = page * RESULTS_PER_PAGE
+        jobs = _serpapi_jobs_page(api_key, title, location, date_filter, start)
+        pages_fetched += 1
+
+        if not jobs:
+            break
+
+        total_jobs += len(jobs)
+        page_inserted = 0
+
+        for job in jobs:
+            job_id = job.get("job_id", "")
+            job_title = job.get("title", "")
+            company = job.get("company_name", "")
+            location_str = job.get("location", "")
+            posted_date = job.get("detected_extensions", {}).get("posted_at", "")
+            description = job.get("description", "")
+            apply_options = job.get("apply_options", [])
+
+            apply_url = _pick_best_apply_url(apply_options)
+            if not apply_url:
+                skipped += 1
+                continue
+
+            ats_type = _infer_ats_type(apply_url)
+            url = apply_url  # use best apply URL as canonical URL
+
+            if dry_run:
+                exists = conn.execute(
+                    "SELECT 1 FROM serper_jobs WHERE job_id = ? OR url = ?",
+                    (job_id, url),
+                ).fetchone()
+                if exists:
+                    skipped += 1
+                else:
+                    page_inserted += 1
+                    inserted += 1
+                    log.info("[DRY RUN] Would insert: [%s] %s @ %s", company, job_title, location_str)
+            else:
+                with lock:
+                    try:
+                        conn.execute("""
+                            INSERT OR IGNORE INTO serper_jobs
+                            (job_id, title, company, location, posted_date,
+                             url, apply_url, full_description, ats_type,
+                             discovered_at, search_title, search_location)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
+                        """, (
+                            job_id, job_title, company, location_str, posted_date,
+                            url, apply_url, description, ats_type,
+                            title, location,
+                        ))
+                        conn.commit()
+                        if conn.execute("SELECT changes()").fetchone()[0] > 0:
+                            page_inserted += 1
+                            inserted += 1
+                            log.debug("Inserted: [%s] %s @ %s (%s)", company, job_title, location_str, ats_type)
+                        else:
+                            skipped += 1
+                    except Exception as exc:
+                        log.warning("Insert error for %r %r: %s", job_title, company, exc)
+                        skipped += 1
+
+        if page_inserted == 0:
+            log.debug("  %r × %r page %d: all duplicates, stopping", title, location, page + 1)
+            break
+
+    return {
+        "title": title,
+        "location": location,
+        "pages_fetched": pages_fetched,
+        "jobs_found": total_jobs,
+        "inserted": inserted,
+        "skipped": skipped,
+        "credits_used": pages_fetched,
+    }
+
+
+_DATE_FILTER_MAP = {
+    "1 day":   "today",
+    "7 days":  "week",
+    "1 month": "month",
+}
+
+
+def run_serpapi_jobs(
+    date_filter: str = "7 days",
+    workers: int = 5,
+    dry_run: bool = False,
+    titles_override: list[str] | None = None,
+    locations_override: list[str] | None = None,
+) -> dict:
+    """Main entry point for SerpAPI Google Jobs discovery pipeline.
+
+    Queries Google Jobs directly via SerpAPI, returning structured job data
+    including full descriptions and direct ATS apply links. Results are stored
+    in the serper_jobs table.
+
+    Args:
+        date_filter: '1 day', '7 days', or '1 month'.
+        workers: Parallel thread count.
+        dry_run: Log what would be inserted without writing to DB.
+        titles_override: Override job titles from searches.yaml.
+        locations_override: Override locations from searches.yaml.
+    """
+    load_env()
+
+    api_key = os.environ.get("SERPAPI_API_KEY")
+    if not api_key:
+        raise ValueError("SERPAPI_API_KEY not found in .env — add it to ~/.applypilot/.env")
+
+    chips_value = _DATE_FILTER_MAP.get(date_filter)
+    if not chips_value:
+        raise ValueError(f"Invalid date_filter {date_filter!r}. Choose from: {list(_DATE_FILTER_MAP)}")
+
+    titles = titles_override or load_titles()
+    raw_locations = locations_override or load_locations()
+
+    # Deduplicate locations (searches.yaml has duplicates)
+    seen: set[str] = set()
+    locations: list[str] = []
+    for loc in raw_locations:
+        key = loc.strip().lower()
+        if key not in seen:
+            seen.add(key)
+            locations.append(loc)
+
+    combos = [(t, loc) for t in titles for loc in locations]
+    total_combos = len(combos)
+
+    log.info(
+        "SerpAPI Google Jobs: %d titles × %d locations = %d combos | date_filter=%s workers=%d dry_run=%s",
+        len(titles), len(locations), total_combos, date_filter, workers, dry_run,
+    )
+
+    lock = threading.Lock()
+    stats = {
+        "total_combos": total_combos,
+        "total_inserted": 0,
+        "total_skipped": 0,
+        "total_credits": 0,
+        "total_jobs": 0,
+    }
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(
+                _process_serpapi_combo, api_key, title, location, chips_value, dry_run, lock
+            ): (title, location)
+            for title, location in combos
+        }
+
+        for future in as_completed(futures):
+            title, location = futures[future]
+            try:
+                result = future.result()
+                with lock:
+                    completed += 1
+                    stats["total_inserted"] += result["inserted"]
+                    stats["total_skipped"] += result["skipped"]
+                    stats["total_credits"] += result["credits_used"]
+                    stats["total_jobs"] += result["jobs_found"]
+                log.info(
+                    "[%d/%d] %r × %r — pages=%d inserted=%d skipped=%d",
+                    completed, total_combos,
+                    title, location,
+                    result["pages_fetched"],
+                    result["inserted"],
+                    result["skipped"],
+                )
+            except Exception as exc:
+                log.error("Combo failed %r × %r: %s", title, location, exc)
+
+    log.info("=" * 60)
+    log.info("SERPAPI GOOGLE JOBS COMPLETE")
+    log.info("Total combos:  %d", stats["total_combos"])
+    log.info("Jobs found:    %d", stats["total_jobs"])
+    log.info("Inserted:      %d", stats["total_inserted"])
+    log.info("Skipped:       %d", stats["total_skipped"])
+    log.info("Credits used:  %d", stats["total_credits"])
+    log.info("=" * 60)
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Promote serper_jobs → jobs table
+# ---------------------------------------------------------------------------
+
+def promote_serper_jobs_to_jobs() -> int:
+    """Copy all serper_jobs records into the jobs table (INSERT OR IGNORE).
+
+    Uses apply_url as application_url when available, falling back to url.
+    Sets strategy='serpapi' and site from ats_type.
+
+    Returns the number of new jobs inserted.
+    """
+    from datetime import datetime
+    conn = get_connection()
+    now = datetime.utcnow().isoformat()
+
+    before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+
+    conn.execute(f"""
+        INSERT OR IGNORE INTO jobs
+            (url, title, company, location, site, strategy,
+             application_url, full_description, discovered_at)
+        SELECT
+            COALESCE(NULLIF(sj.apply_url, ''), sj.url),
+            sj.title,
+            sj.company,
+            sj.location,
+            sj.ats_type,
+            'serpapi',
+            COALESCE(NULLIF(sj.apply_url, ''), sj.url),
+            sj.full_description,
+            COALESCE(sj.discovered_at, '{now}')
+        FROM serper_jobs sj
+        WHERE COALESCE(NULLIF(sj.apply_url, ''), sj.url) IS NOT NULL
+          AND COALESCE(NULLIF(sj.apply_url, ''), sj.url) != ''
+    """)
+    conn.commit()
+
+    after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    inserted = after - before
+    log.info("promote_serper_jobs_to_jobs: inserted %d new jobs", inserted)
+    return inserted
