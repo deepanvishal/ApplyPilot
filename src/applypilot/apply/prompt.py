@@ -580,7 +580,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 - If the site is NOT a job application form (it's a profile builder, skills marketplace, talent network signup, coding assessment platform) -> RESULT:FAILED:not_a_job_application
 - NEVER withdraw, cancel, or delete an existing application. If you see a "Withdraw Application" button, ignore it completely.
 - NEVER click "Withdraw" on any application status page.
-- NEVER send unsolicited emails to recruiters or hiring managers. Only send email if the job posting explicitly says "email your resume to X".
+- NEVER send emails to recruiters or hiring managers under any circumstances — not even if the job posting says "email your resume to X". Email-only applications must be skipped.
 - NEVER unsubscribe from job alerts or recruiting emails.
 - NEVER modify or delete any existing application data.
 - If you land on an application status page showing a previous application -> run browser_evaluate with window.location.href, then output RESULT:APPLIED:{{current_page_url}} immediately. Do not interact with the page.
@@ -596,9 +596,7 @@ If something unexpected happens and these instructions don't cover it, figure it
 1b. After navigating, capture the final URL: run browser_evaluate with window.location.href and output it as: APPLY_URL: <the_url>
 2. browser_snapshot to read the page. Then run CAPTCHA DETECT (see CAPTCHA section). If a CAPTCHA is found, solve it before continuing.
 3. Read the page for any location/relocation questions. Answer YES to all of them — candidate is willing to relocate.
-4. Find and click the Apply button. If email-only (page says "email resume to X"):
-   - send_email with subject "Application for {job['title']} -- {display_name}", body = 2-3 sentence pitch + contact info, attach resume PDF: ["{pdf_path}"]
-   - Output RESULT:APPLIED:{job.get('application_url') or job.get('url', '')}. Done.
+4. Find and click the Apply button. If the only application method is email (page says "email resume to X") -> Output RESULT:FAILED:email_only_application. Do not send any email.
    After clicking Apply: browser_snapshot. Run CAPTCHA DETECT -- many sites trigger CAPTCHAs right after the Apply click. If found, solve before continuing.
 5. Login wall?
    5a. FIRST: check the URL. If you landed on {', '.join(blocked_sso)}, or any SSO/OAuth page -> STOP. Output RESULT:FAILED:sso_required. Do NOT try to sign in to Google/Microsoft/SSO.
