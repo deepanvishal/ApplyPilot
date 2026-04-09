@@ -413,6 +413,10 @@ _ALL_COLUMNS: dict[str, str] = {
     # Optimization
     "optimizer_rank": "INTEGER DEFAULT 0",
     "last_optimizer_rank": "INTEGER DEFAULT 0",
+    # Embedding
+    "embedding_score": "REAL DEFAULT 0",
+    # Expiry check
+    "expiry_checked_at": "TEXT",
 }
 
 
