@@ -26,7 +26,7 @@ console = Console()
 log = logging.getLogger(__name__)
 
 # Valid pipeline stages (in execution order)
-VALID_STAGES = ("discover", "enrich", "score", "tailor", "cover", "pdf")
+VALID_STAGES = ("exploreserper", "exploreemail", "run-genie", "enrich", "score", "prioritize", "tailor", "allocate", "apply")
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,12 @@ def run(
         ),
     ),
 ) -> None:
-    """Run pipeline stages: discover, enrich, score, tailor, cover, pdf."""
+    """Run the full pipeline: exploreserper → exploreemail → run-genie → enrich → score → prioritize → tailor → allocate → apply.
+
+    Or run specific stages:
+        applypilot run enrich score tailor
+        applypilot run score prioritize allocate
+    """
     _bootstrap()
 
     from applypilot.pipeline import run_pipeline
@@ -115,7 +120,7 @@ def run(
             raise typer.Exit(code=1)
 
     # Gate AI stages behind Tier 2
-    llm_stages = {"score", "tailor", "cover"}
+    llm_stages = {"score", "tailor", "prioritize"}
     if any(s in stage_list for s in llm_stages) or "all" in stage_list:
         from applypilot.config import check_tier
         check_tier(2, "AI scoring/tailoring")
@@ -474,17 +479,68 @@ def exploreworkday(
         raise typer.Exit(code=1)
 
 
+@app.command(name="purge-blocked")
+def purge_blocked_command(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview deletions without modifying DB."),
+) -> None:
+    """Remove all jobs matching the company blocklist. Keeps applied/manual jobs.
+
+    Examples:
+        applypilot purge-blocked
+        applypilot purge-blocked --dry-run
+    """
+    _bootstrap()
+    from applypilot.company_blocklist import purge_blocked_companies
+    result = purge_blocked_companies(dry_run=dry_run)
+    label = "[DRY RUN]" if dry_run else ""
+    console.print(f"\n[bold]Company Blocklist Purge {label}[/bold]")
+    for pattern, counts in result["results"].items():
+        if counts["deleted"] > 0 or counts["kept"] > 0:
+            console.print(f"  {pattern:<30} deleted={counts['deleted']}  kept={counts['kept']}")
+    console.print(f"\n  [bold]Total deleted: {result['total']}[/bold]\n")
+
+
 @app.command()
 def dedup_jobs() -> None:
-    """Deduplicate jobs table by application_url. Keeps best row per job, ignores NULLs."""
+    """Deduplicate jobs table by application_url and purge blocked companies.
+
+    Keeps best row per job (ignores NULLs), then removes all jobs matching
+    the company blocklist (applied/manual jobs are always preserved).
+    """
     _bootstrap()
     from applypilot.database import dedup_jobs as _dedup_jobs
+    from applypilot.company_blocklist import purge_blocked_companies
 
     console.print("\n[bold]Deduplicating jobs table...[/bold]")
     result = _dedup_jobs()
     console.print(f"  Before:  {result['before']} rows")
     console.print(f"  After:   {result['after']} rows")
-    console.print(f"  Removed: {result['removed']} duplicates\n")
+    console.print(f"  Removed: {result['removed']} duplicates")
+
+    console.print("\n[bold]Purging blocked companies...[/bold]")
+    purge = purge_blocked_companies()
+    console.print(f"  Removed: {purge['total']} blocked rows\n")
+
+
+@app.command(name="run-discover")
+def run_discover(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without inserting to DB."),
+) -> None:
+    """Discover jobs via JobSpy (Indeed, LinkedIn, Glassdoor, ZipRecruiter).
+
+    Reads titles and locations from ~/.applypilot/searches.yaml.
+
+    Examples:
+        applypilot run-discover
+        applypilot run-discover --dry-run
+    """
+    _bootstrap()
+    from applypilot.discovery.jobspy import run_discovery
+    result = run_discovery()
+    console.print("\n[bold]JobSpy Discovery Complete[/bold]")
+    console.print(f"  Inserted: {result.get('inserted', 0)}")
+    console.print(f"  Skipped:  {result.get('skipped', 0)}")
+    console.print(f"  Errors:   {result.get('errors', 0)}\n")
 
 
 @app.command()
@@ -753,12 +809,17 @@ def exploreserper(
     tbs: str = typer.Option(
         "qdr:w",
         "--tbs",
-        help="Time filter: qdr:d=day, qdr:w=week, qdr:m=month, qdr:y=year",
+        help="Serper.dev time filter: qdr:d=day, qdr:w=week, qdr:m=month, qdr:y=year",
+    ),
+    date_filter: str = typer.Option(
+        "7 days",
+        "--date-filter",
+        help="SerpAPI Google Jobs date range: '1 day', '7 days', '1 month'.",
     ),
     workers: int = typer.Option(
         10,
         "--workers",
-        help="Parallel workers for combo processing.",
+        help="Parallel workers for both engines.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -776,89 +837,43 @@ def exploreserper(
         help="Override locations (repeatable: --location 'New York' --location 'Remote')",
     ),
 ) -> None:
-    """Discover LinkedIn jobs via Google Serper search.
+    """Discover jobs via Serper.dev (LinkedIn) + SerpAPI (Google Jobs) in parallel.
+
+    Both engines run concurrently and write to serper_jobs. A dedup pass
+    runs sequentially at the end to clean up any overlapping records.
 
     Examples:
         applypilot exploreserper
-        applypilot exploreserper --tbs qdr:d
-        applypilot exploreserper --tbs qdr:m
-        applypilot exploreserper --dry-run
+        applypilot exploreserper --tbs qdr:d --date-filter "1 day"
         applypilot exploreserper --workers 5
+        applypilot exploreserper --dry-run
         applypilot exploreserper --title "Data Scientist" --location "Remote"
     """
     _bootstrap()
-    from applypilot.serper.pipeline import run_serper
-    result = run_serper(
+    from applypilot.serper.pipeline import run_serper_combined
+    result = run_serper_combined(
         tbs=tbs,
-        workers=workers,
-        dry_run=dry_run,
-        titles_override=titles if titles else None,
-        locations_override=locations if locations else None,
-    )
-    console.print("\n[bold]Serper Explore Complete[/bold]")
-    console.print(f"  URLs found:   {result['total_urls']}")
-    console.print(f"  Inserted:     {result['total_inserted']}")
-    console.print(f"  Skipped:      {result['total_skipped']}")
-    console.print(f"  Credits used: {result['total_credits']}")
-    if dry_run:
-        console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
-
-
-@app.command(name="exploregooglejobs")
-def exploregooglejobs(
-    date_filter: str = typer.Option(
-        "7 days",
-        "--date-filter",
-        help="Date range: '1 day', '7 days', '1 month'. Default: '7 days'.",
-    ),
-    workers: int = typer.Option(
-        5,
-        "--workers",
-        help="Parallel workers for combo processing.",
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Show what would be inserted without writing to DB.",
-    ),
-    titles: list[str] = typer.Option(
-        None,
-        "--title",
-        help="Override titles (repeatable: --title 'Data Scientist' --title 'ML Engineer')",
-    ),
-    locations: list[str] = typer.Option(
-        None,
-        "--location",
-        help="Override locations (repeatable: --location 'New York' --location 'Remote')",
-    ),
-) -> None:
-    """Discover jobs via SerpAPI Google Jobs engine.
-
-    Queries Google Jobs directly — surfaces direct ATS postings (Workday, Greenhouse,
-    Lever, Ashby) and company career pages, not just LinkedIn. Full job descriptions
-    are captured immediately. Results go into the serper_jobs table.
-
-    Examples:
-        applypilot exploregooglejobs
-        applypilot exploregooglejobs --date-filter "1 month"
-        applypilot exploregooglejobs --date-filter "1 day"
-        applypilot exploregooglejobs --dry-run
-        applypilot exploregooglejobs --title "Data Scientist" --location "New York, NY"
-    """
-    _bootstrap()
-    from applypilot.serper.pipeline import run_serpapi_jobs
-    result = run_serpapi_jobs(
         date_filter=date_filter,
         workers=workers,
         dry_run=dry_run,
         titles_override=titles if titles else None,
         locations_override=locations if locations else None,
     )
-    console.print("\n[bold]Google Jobs Explore Complete[/bold]")
-    console.print(f"  Jobs found:   {result['total_jobs']}")
-    console.print(f"  Inserted:     {result['total_inserted']}")
-    console.print(f"  Skipped:      {result['total_skipped']}")
-    console.print(f"  Credits used: {result['total_credits']}")
+    serper = result.get("serper", {})
+    serpapi = result.get("serpapi", {})
+    dedup = result.get("dedup", {})
+    console.print("\n[bold]Serper Explore Complete[/bold]")
+    console.print(f"\n  [cyan]Serper.dev (LinkedIn)[/cyan]")
+    console.print(f"    URLs found:   {serper.get('total_urls', 0)}")
+    console.print(f"    Inserted:     {serper.get('total_inserted', 0)}")
+    console.print(f"    Credits used: {serper.get('total_credits', 0)}")
+    console.print(f"\n  [cyan]SerpAPI (Google Jobs)[/cyan]")
+    console.print(f"    Jobs found:   {serpapi.get('total_jobs', 0)}")
+    console.print(f"    Inserted:     {serpapi.get('total_inserted', 0)}")
+    console.print(f"    Credits used: {serpapi.get('total_credits', 0)}")
+    console.print(f"\n  [cyan]Dedup[/cyan]")
+    console.print(f"    Removed:      {dedup.get('removed', 0)} duplicates")
+    console.print(f"\n  [bold]Total inserted: {result.get('total_inserted', 0)}[/bold]\n")
     if dry_run:
         console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
 

@@ -7,8 +7,6 @@ import threading
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import Path
-
 from rich.console import Console
 from rich.table import Table
 
@@ -18,20 +16,10 @@ from applypilot.genie.db import (
     insert_genie_job,
     update_portal,
 )
+from applypilot.utils.titles import load_titles as _load_titles
 
 log = logging.getLogger(__name__)
 console = Console()
-
-_DEFAULT_TITLES = [
-    "Lead Data Scientist",
-    "Principal Data Scientist",
-    "Staff Data Scientist",
-    "Senior Data Scientist",
-    "ML Scientist",
-    "Machine Learning Engineer",
-    "Applied Scientist",
-    "AI Scientist",
-]
 
 # Per-ATS preset worker counts. Workday is overridable via --workers CLI flag.
 ATS_WORKERS = {
@@ -41,31 +29,6 @@ ATS_WORKERS = {
     "bamboohr": 10,
     "workday": 5,
 }
-
-
-def _load_titles() -> list[str]:
-    path = Path.home() / ".applypilot" / "titles.yaml"
-    if not path.exists():
-        _write_default_titles(path)
-        return list(_DEFAULT_TITLES)
-    try:
-        import yaml  # type: ignore
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        titles = data.get("titles", []) if isinstance(data, dict) else []
-        return titles if titles else list(_DEFAULT_TITLES)
-    except Exception as exc:
-        log.warning("Failed to load titles.yaml (%s), using defaults", exc)
-        return list(_DEFAULT_TITLES)
-
-
-def _write_default_titles(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("titles:\n")
-        for t in _DEFAULT_TITLES:
-            f.write(f'  - "{t}"\n')
-    console.print(f"[dim]Created default titles.yaml at {path}[/dim]")
 
 
 def _get_fetcher(ats_type: str):

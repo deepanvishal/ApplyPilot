@@ -1,13 +1,12 @@
 """ApplyPilot Pipeline Orchestrator.
 
-Runs pipeline stages in sequence or concurrently (streaming mode).
+Full pipeline (applypilot run):
+    exploreserper → exploreemail → run-genie → enrich → score →
+    prioritize → tailor → allocate → apply (score>=7, 3 workers)
 
-Usage (via CLI):
-    applypilot run                        # all stages, sequential
-    applypilot run --stream               # all stages, concurrent
-    applypilot run discover enrich        # specific stages
-    applypilot run score tailor cover     # LLM-only stages
-    applypilot run --dry-run              # preview without executing
+Individual stages can still be run selectively:
+    applypilot run enrich score tailor
+    applypilot run --dry-run
 """
 
 from __future__ import annotations
@@ -32,26 +31,42 @@ console = Console()
 # Stage definitions
 # ---------------------------------------------------------------------------
 
-STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "pdf")
+STAGE_ORDER = (
+    "exploreserper",
+    "exploreemail",
+    "run-genie",
+    "enrich",
+    "score",
+    "prioritize",
+    "tailor",
+    "allocate",
+    "apply",
+)
 
 STAGE_META: dict[str, dict] = {
-    "discover": {"desc": "Job discovery (JobSpy + Workday + smart extract)"},
-    "enrich":   {"desc": "Detail enrichment (full descriptions + apply URLs)"},
-    "score":    {"desc": "LLM scoring (fit 1-10)"},
-    "tailor":   {"desc": "Resume tailoring (LLM + validation)"},
-    "cover":    {"desc": "Cover letter generation"},
-    "pdf":      {"desc": "PDF conversion (tailored resumes + cover letters)"},
+    "exploreserper": {"desc": "Serper.dev (LinkedIn) + SerpAPI (Google Jobs) -> serper_jobs"},
+    "exploreemail":  {"desc": "Gmail job alert URLs -> jobs"},
+    "run-genie":     {"desc": "All ATS portals -> genie_jobs (incremental)"},
+    "enrich":        {"desc": "Detail enrichment (full descriptions + apply URLs)"},
+    "score":         {"desc": "LLM scoring (fit 1-10)"},
+    "prioritize":    {"desc": "Embedding similarity rerank -> embedding_score"},
+    "tailor":        {"desc": "Resume tailoring (LLM + validation, score >= 7)"},
+    "allocate":      {"desc": "Bayesian queue allocation -> optimizer_rank"},
+    "apply":         {"desc": "Auto-apply via Chrome + Claude Code (score >= 7, 3 workers)"},
 }
 
 # Upstream dependency: a stage only finishes when its upstream is done AND
 # it has no remaining pending work.
 _UPSTREAM: dict[str, str | None] = {
-    "discover": None,
-    "enrich":   "discover",
-    "score":    "enrich",
-    "tailor":   "score",
-    "cover":    "tailor",
-    "pdf":      "cover",
+    "exploreserper": None,
+    "exploreemail":  None,
+    "run-genie":     None,
+    "enrich":        "run-genie",   # wait for all discovery to settle
+    "score":         "enrich",
+    "prioritize":    "score",
+    "tailor":        "prioritize",
+    "allocate":      "tailor",
+    "apply":         "allocate",
 }
 
 
@@ -59,47 +74,42 @@ _UPSTREAM: dict[str, str | None] = {
 # Individual stage runners
 # ---------------------------------------------------------------------------
 
-def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers."""
-    stats: dict = {"jobspy": None, "workday": None, "smartextract": None}
-
-    # JobSpy
-    console.print("  [cyan]JobSpy full crawl...[/cyan]")
+def _run_exploreserper(workers: int = 10) -> dict:
+    """Stage: Serper.dev + SerpAPI in parallel → serper_jobs → dedup → promote to jobs."""
     try:
-        from applypilot.discovery.jobspy import run_discovery
-        run_discovery()
-        stats["jobspy"] = "ok"
+        from applypilot.serper.pipeline import run_serper_combined, promote_serper_jobs_to_jobs
+        result = run_serper_combined(workers=workers)
+        promoted = promote_serper_jobs_to_jobs()
+        result["promoted_to_jobs"] = promoted
+        return {"status": "ok", **result}
     except Exception as e:
-        log.error("JobSpy crawl failed: %s", e)
-        console.print(f"  [red]JobSpy error:[/red] {e}")
-        stats["jobspy"] = f"error: {e}"
-
-    # # Workday corporate scraper
-    # console.print("  [cyan]Workday corporate scraper...[/cyan]")
-    # try:
-    #     from applypilot.discovery.workday import run_workday_discovery
-    #     run_workday_discovery(workers=workers)
-    #     stats["workday"] = "ok"
-    # except Exception as e:
-    #     log.error("Workday scraper failed: %s", e)
-    #     console.print(f"  [red]Workday error:[/red] {e}")
-    #     stats["workday"] = f"error: {e}"
-
-    # # Smart extract
-    # console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
-    # try:
-    #     from applypilot.discovery.smartextract import run_smart_extract
-    #     run_smart_extract(workers=workers)
-    #     stats["smartextract"] = "ok"
-    # except Exception as e:
-    #     log.error("Smart extract failed: %s", e)
-    #     console.print(f"  [red]Smart extract error:[/red] {e}")
-    #     stats["smartextract"] = f"error: {e}"
-
-    return stats
+        log.error("exploreserper failed: %s", e)
+        return {"status": f"error: {e}"}
 
 
-def _run_enrich(workers: int = 1) -> dict:
+def _run_exploreemail() -> dict:
+    """Stage: Extract LinkedIn job URLs from Gmail job alert emails → jobs."""
+    try:
+        from applypilot.email_explore.pipeline import run_email_explore
+        result = run_email_explore()
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error("exploreemail failed: %s", e)
+        return {"status": f"error: {e}"}
+
+
+def _run_genie() -> dict:
+    """Stage: All ATS portals → genie_jobs (incremental), then promote to jobs."""
+    try:
+        from applypilot.genie.pipeline import run_genie
+        result = run_genie(incremental=True)
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error("run-genie failed: %s", e)
+        return {"status": f"error: {e}"}
+
+
+def _run_enrich(workers: int = 3) -> dict:
     """Stage: Detail enrichment — scrape full descriptions and apply URLs."""
     try:
         from applypilot.enrichment.detail import run_enrichment
@@ -121,8 +131,19 @@ def _run_score(workers: int = 5) -> dict:
         return {"status": f"error: {e}"}
 
 
+def _run_prioritize(min_score: int = 7) -> dict:
+    """Stage: Embedding similarity rerank → embedding_score."""
+    try:
+        from applypilot.scoring.prioritize import run_prioritization
+        result = run_prioritization(min_score=min_score)
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error("Prioritize failed: %s", e)
+        return {"status": f"error: {e}"}
+
+
 def _run_tailor(min_score: int = 7, validation_mode: str = "normal") -> dict:
-    """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
+    """Stage: Resume tailoring — generate tailored resumes for score >= 7 jobs."""
     try:
         from applypilot.scoring.tailor import run_tailoring
         run_tailoring(min_score=min_score, validation_mode=validation_mode)
@@ -132,36 +153,39 @@ def _run_tailor(min_score: int = 7, validation_mode: str = "normal") -> dict:
         return {"status": f"error: {e}"}
 
 
-def _run_cover(min_score: int = 7, validation_mode: str = "normal") -> dict:
-    """Stage: Cover letter generation."""
+def _run_allocate(min_score: int = 7) -> dict:
+    """Stage: Bayesian queue allocation → writes optimizer_rank to jobs."""
     try:
-        from applypilot.scoring.cover_letter import run_cover_letters
-        run_cover_letters(min_score=min_score, validation_mode=validation_mode)
-        return {"status": "ok"}
+        from applypilot.optimization.allocator import build_apply_queue
+        queue = build_apply_queue(min_score=min_score)
+        return {"status": "ok", "queue_size": len(queue)}
     except Exception as e:
-        log.error("Cover letter generation failed: %s", e)
+        log.error("Allocate failed: %s", e)
         return {"status": f"error: {e}"}
 
 
-def _run_pdf() -> dict:
-    """Stage: PDF conversion — convert tailored resumes and cover letters to PDF."""
+def _run_apply(min_score: int = 7, workers: int = 3) -> dict:
+    """Stage: Auto-apply via Chrome + Claude Code (score >= 7, 3 workers)."""
     try:
-        from applypilot.scoring.pdf import batch_convert
-        batch_convert()
+        from applypilot.apply.launcher import main as apply_main
+        apply_main(limit=0, min_score=min_score, workers=workers)
         return {"status": "ok"}
     except Exception as e:
-        log.error("PDF conversion failed: %s", e)
+        log.error("Apply failed: %s", e)
         return {"status": f"error: {e}"}
 
 
 # Map stage names to their runner functions
 _STAGE_RUNNERS: dict[str, callable] = {
-    "discover": _run_discover,
-    "enrich":   _run_enrich,
-    "score":    _run_score,
-    "tailor":   _run_tailor,
-    "cover":    _run_cover,
-    "pdf":      _run_pdf,
+    "exploreserper": _run_exploreserper,
+    "exploreemail":  _run_exploreemail,
+    "run-genie":     _run_genie,
+    "enrich":        _run_enrich,
+    "score":         _run_score,
+    "prioritize":    _run_prioritize,
+    "tailor":        _run_tailor,
+    "allocate":      _run_allocate,
+    "apply":         _run_apply,
 }
 
 
@@ -219,24 +243,22 @@ class _StageTracker:
             return dict(self._results)
 
 
-# SQL to count pending work for each stage
+# SQL to count pending work for each stage (used in streaming mode)
 _PENDING_SQL: dict[str, str] = {
-    "enrich": "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL",
-    "score":  "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND fit_score IS NULL",
+    "enrich":     "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL",
+    "score":      "SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL AND fit_score IS NULL",
+    "prioritize": "SELECT COUNT(*) FROM jobs WHERE fit_score >= ? AND full_description IS NOT NULL AND (embedding_score IS NULL OR embedding_score = 0)",
     "tailor": (
         "SELECT COUNT(*) FROM jobs WHERE fit_score >= ? "
         "AND full_description IS NOT NULL "
         "AND tailored_resume_path IS NULL "
         "AND COALESCE(tailor_attempts, 0) < 5"
     ),
-    "cover": (
-        "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL "
-        "AND (cover_letter_path IS NULL OR cover_letter_path = '') "
-        "AND COALESCE(cover_attempts, 0) < 5"
-    ),
-    "pdf": (
-        "SELECT COUNT(*) FROM jobs WHERE tailored_resume_path IS NOT NULL "
-        "AND tailored_resume_path LIKE '%.txt'"
+    "apply": (
+        "SELECT COUNT(*) FROM jobs WHERE optimizer_rank > 0 "
+        "AND fit_score >= ? "
+        "AND tailored_resume_path IS NOT NULL "
+        "AND apply_status IS NULL"
     ),
 }
 
@@ -271,16 +293,20 @@ def _run_stage_streaming(
     """
     runner = _STAGE_RUNNERS[stage]
     kwargs: dict = {}
-    if stage in ("tailor", "cover"):
+    if stage in ("tailor",):
         kwargs["min_score"] = min_score
         kwargs["validation_mode"] = validation_mode
-    if stage in ("discover", "enrich", "score"):
+    if stage in ("prioritize", "allocate", "apply"):
+        kwargs["min_score"] = min_score
+    if stage == "apply":
+        kwargs["workers"] = workers
+    if stage in ("exploreserper", "enrich", "score"):
         kwargs["workers"] = workers
 
     upstream = _UPSTREAM[stage]
 
-    if stage == "discover":
-        # Discover runs once (its sub-scrapers already do their full crawl)
+    if stage in ("exploreserper", "exploreemail", "run-genie", "allocate", "apply"):
+        # These stages run once and mark done
         try:
             result = runner(**kwargs)
             tracker.mark_done(stage, result)
@@ -342,10 +368,14 @@ def _run_sequential(ordered: list[str], min_score: int, workers: int = 1,
 
         try:
             kwargs: dict = {}
-            if name in ("tailor", "cover"):
+            if name in ("tailor",):
                 kwargs["min_score"] = min_score
                 kwargs["validation_mode"] = validation_mode
-            if name in ("discover", "enrich", "score"):
+            if name in ("prioritize", "allocate", "apply"):
+                kwargs["min_score"] = min_score
+            if name == "apply":
+                kwargs["workers"] = workers
+            if name in ("exploreserper", "enrich", "score"):
                 kwargs["workers"] = workers
             result = runner(**kwargs)
             elapsed = time.time() - t0

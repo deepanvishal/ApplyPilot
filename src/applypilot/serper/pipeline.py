@@ -100,16 +100,7 @@ def _pick_best_apply_url(apply_options: list[dict]) -> str | None:
 
     return (preferred or acceptable or fallback or [_strip_utm(apply_options[0].get("link", ""))])[0] or None
 
-_DEFAULT_TITLES = [
-    "Lead Data Scientist",
-    "Principal Data Scientist",
-    "Staff Data Scientist",
-    "Senior Data Scientist",
-    "ML Scientist",
-    "Machine Learning Engineer",
-    "Applied Scientist",
-    "AI Scientist",
-]
+from applypilot.utils.titles import DEFAULT_TITLES as _DEFAULT_TITLES
 
 _DEFAULT_LOCATIONS = [
     "United States",
@@ -662,3 +653,119 @@ def promote_serper_jobs_to_jobs() -> int:
     inserted = after - before
     log.info("promote_serper_jobs_to_jobs: inserted %d new jobs", inserted)
     return inserted
+
+
+# ---------------------------------------------------------------------------
+# Dedup serper_jobs
+# ---------------------------------------------------------------------------
+
+def dedup_serper_jobs() -> dict:
+    """Deduplicate serper_jobs by url, keeping the row with the most data (apply_url set).
+
+    Returns dict with before/after/removed counts.
+    """
+    conn = get_connection()
+    before = conn.execute("SELECT COUNT(*) FROM serper_jobs").fetchone()[0]
+
+    # Keep the row with the highest id (most recently inserted) when url dupes exist.
+    # Prefer rows that have an apply_url set.
+    conn.execute("""
+        DELETE FROM serper_jobs
+        WHERE id NOT IN (
+            SELECT MAX(id)
+            FROM serper_jobs
+            GROUP BY url
+        )
+    """)
+    conn.commit()
+
+    after = conn.execute("SELECT COUNT(*) FROM serper_jobs").fetchone()[0]
+    removed = before - after
+    log.info("dedup_serper_jobs: %d → %d (%d removed)", before, after, removed)
+    return {"before": before, "after": after, "removed": removed}
+
+
+# ---------------------------------------------------------------------------
+# Combined serper + serpapi pipeline
+# ---------------------------------------------------------------------------
+
+def run_serper_combined(
+    tbs: str = DEFAULT_TBS,
+    date_filter: str = "7 days",
+    workers: int = 10,
+    dry_run: bool = False,
+    titles_override: list[str] | None = None,
+    locations_override: list[str] | None = None,
+) -> dict:
+    """Run Serper.dev (LinkedIn) and SerpAPI (Google Jobs) in parallel, then dedup.
+
+    Both engines write to serper_jobs independently. After both complete,
+    dedup_serper_jobs() runs sequentially to clean up duplicates.
+
+    Args:
+        tbs: Serper.dev time filter (qdr:d, qdr:w, qdr:m, qdr:y).
+        date_filter: SerpAPI date filter ('1 day', '7 days', '1 month').
+        workers: Worker count used by both engines.
+        dry_run: Preview only, no DB writes.
+        titles_override: Override titles for both engines.
+        locations_override: Override locations for both engines.
+
+    Returns:
+        Combined stats dict with serper, serpapi, and dedup sub-keys.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
+    log.info("Starting combined serper + serpapi run (parallel)...")
+
+    serper_result: dict = {}
+    serpapi_result: dict = {}
+
+    def _run_serper():
+        return run_serper(
+            tbs=tbs,
+            workers=workers,
+            dry_run=dry_run,
+            titles_override=titles_override,
+            locations_override=locations_override,
+        )
+
+    def _run_serpapi():
+        return run_serpapi_jobs(
+            date_filter=date_filter,
+            workers=workers,
+            dry_run=dry_run,
+            titles_override=titles_override,
+            locations_override=locations_override,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(_run_serper): "serper",
+            executor.submit(_run_serpapi): "serpapi",
+        }
+        for future in _as_completed(futures):
+            key = futures[future]
+            try:
+                result = future.result()
+                if key == "serper":
+                    serper_result = result
+                else:
+                    serpapi_result = result
+            except Exception as exc:
+                log.error("%s pipeline failed: %s", key, exc)
+
+    # Sequential dedup after both engines finish
+    dedup_result = dedup_serper_jobs() if not dry_run else {"before": 0, "after": 0, "removed": 0}
+
+    combined = {
+        "serper": serper_result,
+        "serpapi": serpapi_result,
+        "dedup": dedup_result,
+        "total_inserted": serper_result.get("total_inserted", 0) + serpapi_result.get("total_inserted", 0),
+        "total_skipped": serper_result.get("total_skipped", 0) + serpapi_result.get("total_skipped", 0),
+    }
+    log.info(
+        "Combined run complete: inserted=%d skipped=%d dedup_removed=%d",
+        combined["total_inserted"], combined["total_skipped"], dedup_result["removed"],
+    )
+    return combined

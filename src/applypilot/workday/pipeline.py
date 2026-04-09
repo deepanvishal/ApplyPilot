@@ -9,54 +9,13 @@ import logging
 import os
 import time
 from datetime import datetime
-from pathlib import Path
-
 from rich.console import Console
 from rich.table import Table
 
+from applypilot.utils.titles import load_titles as _load_titles
+
 log = logging.getLogger(__name__)
 console = Console()
-
-
-# ---------------------------------------------------------------------------
-# Titles loader
-# ---------------------------------------------------------------------------
-
-_DEFAULT_TITLES = [
-    "Lead Data Scientist",
-    "Principal Data Scientist",
-    "Staff Data Scientist",
-    "ML Scientist",
-    "Senior Data Scientist",
-    "Machine Learning Engineer",
-    "Applied Scientist",
-    "AI Scientist",
-]
-
-
-def _load_titles() -> list[str]:
-    """Load job titles from ~/.applypilot/titles.yaml, creating defaults if missing."""
-    path = Path.home() / ".applypilot" / "titles.yaml"
-    if not path.exists():
-        _write_default_titles(path)
-        return list(_DEFAULT_TITLES)
-    try:
-        import yaml  # type: ignore
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        titles = data.get("titles", []) if isinstance(data, dict) else []
-        return titles if titles else list(_DEFAULT_TITLES)
-    except Exception as exc:
-        log.warning("Failed to load titles.yaml (%s), using defaults", exc)
-        return list(_DEFAULT_TITLES)
-
-
-def _write_default_titles(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        f.write("titles:\n")
-        for t in _DEFAULT_TITLES:
-            f.write(f'  - "{t}"\n')
 
 
 # ---------------------------------------------------------------------------
