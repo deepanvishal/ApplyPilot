@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 BASE_PORT   = 9298
-NUM_WORKERS = 10
+NUM_WORKERS = 5
 
 
 def _worker_thread(
