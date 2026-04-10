@@ -1,0 +1,32 @@
+URL: https://wd1.myworkdaysite.com/recruiting/paypal/jobs/job/San-Jose-California-United-States-of-America/Sr-Machine-Learning-Engineer_R0130476-1
+
+=== PROMPT ===
+You are looking at a screenshot of a job posting page.
+
+Your task: determine if this job is EXPIRED (closed/no longer accepting applications).
+
+Reply EXPIRED only if you can clearly read text on the page that explicitly states:
+- The job is closed, filled, or no longer available
+- Applications are no longer being accepted
+- The position has been filled
+- A 404 / page not found error specific to this job
+- "No longer accepting applications"
+- "Page you are looking for does not exist"
+
+Reply ACTIVE if you can see a job title, job description, or an apply button.
+
+Reply UNCLEAR if:
+- You see a login wall or sign-in prompt
+- The page is a generic search/browse page with no specific job
+- The page didn't load or is blank
+- You cannot confidently tell either way
+
+Reply with exactly one word: EXPIRED, ACTIVE, or UNCLEAR
+
+=== LLM RAW RESPONSE ===
+UNCLEAR
+
+The page appears to be a generic search/browse page with no specific job, and there is a login wall or sign-in prompt. The page didn't load or is blank, and I cannot confidently tell either way.
+
+=== VERDICT ===
+UNCLEAR

@@ -180,7 +180,12 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             verification_confidence TEXT,
 
             -- Prioritization stage (embedding similarity)
-            embedding_score       FLOAT
+            embedding_score       FLOAT,
+
+            -- Expiry detection
+            predicted_expiry      TEXT,
+            expiry_reason         TEXT,
+            expiry_checked_at     TEXT
         )
     """)
     conn.commit()
@@ -415,7 +420,9 @@ _ALL_COLUMNS: dict[str, str] = {
     "last_optimizer_rank": "INTEGER DEFAULT 0",
     # Embedding
     "embedding_score": "REAL DEFAULT 0",
-    # Expiry check
+    # Expiry detection
+    "predicted_expiry": "TEXT",
+    "expiry_reason":    "TEXT",
     "expiry_checked_at": "TEXT",
 }
 
