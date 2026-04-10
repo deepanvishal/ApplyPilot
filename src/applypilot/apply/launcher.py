@@ -135,6 +135,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
+                  AND (predicted_expiry IS NULL OR predicted_expiry = 'active')
                   {site_clause}
                   {url_clauses}
                 ORDER BY
@@ -200,13 +201,24 @@ def mark_result(url: str, status: str, error: str | None = None,
                 WHERE url = ?
             """, (now, duration_ms, task_id, url))
     else:
-        attempts = 99 if permanent else "COALESCE(apply_attempts, 0) + 1"
-        conn.execute(f"""
-            UPDATE jobs SET apply_status = ?, apply_error = ?,
-                           apply_attempts = {attempts}, agent_id = NULL,
-                           apply_duration_ms = ?, apply_task_id = ?
-            WHERE url = ?
-        """, (status, error or "unknown", duration_ms, task_id, url))
+        # Transient infrastructure failures: reset to NULL so the job is re-queued
+        # without counting against apply_attempts.
+        TRANSIENT_ERRORS = {"browser_unavailable", "no_result_line"}
+        if error in TRANSIENT_ERRORS:
+            conn.execute("""
+                UPDATE jobs SET apply_status = NULL, apply_error = ?,
+                               agent_id = NULL,
+                               apply_duration_ms = ?, apply_task_id = ?
+                WHERE url = ?
+            """, (error, duration_ms, task_id, url))
+        else:
+            attempts = 99 if permanent else "COALESCE(apply_attempts, 0) + 1"
+            conn.execute(f"""
+                UPDATE jobs SET apply_status = ?, apply_error = ?,
+                               apply_attempts = {attempts}, agent_id = NULL,
+                               apply_duration_ms = ?, apply_task_id = ?
+                WHERE url = ?
+            """, (status, error or "unknown", duration_ms, task_id, url))
     conn.commit()
 
 

@@ -1109,7 +1109,7 @@ def serve(
 @app.command(name="predict-expiry")
 def predict_expiry(
     limit: int = typer.Option(0, "--limit", "-n", help="Max jobs to check (0 = all pending)"),
-    workers: int = typer.Option(10, "--workers", "-w", help="Number of parallel Chrome workers"),
+    workers: int = typer.Option(5, "--workers", "-w", help="Number of parallel Chrome workers"),
     base_port: int = typer.Option(9298, "--port", help="Base CDP port (workers use port to port+N-1)"),
     recheck: bool = typer.Option(False, "--recheck", help="Re-check already-checked jobs"),
 ) -> None:
