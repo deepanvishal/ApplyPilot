@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import typer
@@ -1103,6 +1104,45 @@ def serve(
         reload=reload,
         log_level="warning",
     )
+
+
+@app.command(name="predict-expiry")
+def predict_expiry(
+    limit: int = typer.Option(0, "--limit", "-n", help="Max jobs to check (0 = all pending)"),
+    workers: int = typer.Option(5, "--workers", "-w", help="Number of parallel Chrome workers"),
+    base_port: int = typer.Option(9298, "--port", help="Base CDP port (workers use port to port+N-1)"),
+    recheck: bool = typer.Option(False, "--recheck", help="Re-check already-checked jobs"),
+) -> None:
+    """Check pending jobs for expiry and write results to predicted_expiry column.
+
+    Runs ATS-specific expiry detection (Workday, Greenhouse, Ashby, Lever, etc.)
+    on jobs that have not yet been applied to. Results are written to:
+      - predicted_expiry:  'expired' | 'active' | 'unknown'
+      - expiry_reason:     signal that fired (e.g. workday_not_found, http_404)
+      - expiry_checked_at: timestamp of the check
+
+    Examples:
+        applypilot predict-expiry
+        applypilot predict-expiry --limit 100
+        applypilot predict-expiry --recheck
+    """
+    _bootstrap()
+
+    from applypilot.enrichment.expiry_pipeline import run_expiry_pipeline
+
+    console.print("\n[bold blue]Expiry Detection[/bold blue]")
+    console.print(f"  limit={limit or 'all'}  workers={workers}  base_port={base_port}  recheck={recheck}\n")
+
+    start = time.time()
+    counts = run_expiry_pipeline(limit=limit, num_workers=workers, base_port=base_port, recheck=recheck)
+    elapsed = time.time() - start
+
+    console.print(f"\n[bold]Results[/bold]")
+    console.print(f"  Checked : {counts['checked']}")
+    console.print(f"  [red]Expired[/red] : {counts['expired']}")
+    console.print(f"  [green]Active[/green]  : {counts['active']}")
+    console.print(f"  Skipped : {counts['skipped']}  (LinkedIn-only, no auth)")
+    console.print(f"  Time    : {elapsed:.1f}s")
 
 
 if __name__ == "__main__":

@@ -20,6 +20,10 @@ def resolve_apply_url(job: dict) -> str:
     if "linkedin.com" in app_url.lower():
         return url
 
+    # Reconstruct relative Ashby URLs (stored as "/company/uuid/application")
+    if app_url.startswith("/") and "ashbyhq.com" in (job.get("url") or "").lower():
+        app_url = "https://jobs.ashbyhq.com" + app_url
+
     # External ATS URL — strip tracking params and use it
     return _clean_apply_url(app_url)
 
