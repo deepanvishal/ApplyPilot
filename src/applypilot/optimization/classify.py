@@ -104,9 +104,12 @@ def run_classify_companies(batch_size: int = 50) -> dict:
     now = datetime.now(timezone.utc).isoformat()
 
     rows = conn.execute("""
-        SELECT DISTINCT company FROM jobs
-        WHERE company IS NOT NULL AND company != ''
-        ORDER BY company
+        SELECT DISTINCT j.company FROM jobs j
+        LEFT JOIN company_signals cs
+            ON lower(trim(j.company)) = cs.company_name
+        WHERE j.company IS NOT NULL AND j.company != ''
+        AND cs.company_name IS NULL
+        ORDER BY j.company
     """).fetchall()
     raw_names = [r["company"] for r in rows]
     total = len(raw_names)

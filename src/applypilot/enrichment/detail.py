@@ -732,7 +732,7 @@ def _run_detail_scraper(
         "Zurich", "Utrecht", "Darlington", "Durham",
     )
     _non_us_filter = " AND NOT (" + " OR ".join(
-        f"location LIKE '%{kw}%' OR title LIKE '%{kw}%'" for kw in _non_us_keywords
+        f"COALESCE(location,'') LIKE '%{kw}%' OR COALESCE(title,'') LIKE '%{kw}%'" for kw in _non_us_keywords
     ) + ")"
 
     rows = conn.execute(
