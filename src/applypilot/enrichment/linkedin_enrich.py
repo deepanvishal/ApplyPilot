@@ -45,8 +45,6 @@ def _load_proxy() -> str | None:
     parts = raw.split(":")
     if len(parts) == 4:
         host, port, user, passwd = parts
-        # Use sticky session (-1) instead of rotating for LinkedIn
-        user = re.sub(r"-rotate$", "-1", user)
         return f"http://{user}:{passwd}@{host}:{port}"
     elif len(parts) == 2:
         host, port = parts
@@ -181,7 +179,7 @@ def enrich_linkedin_jobs(
         "Switzerland", "Sweden", "Singapore", "Brazil", "Mexico", "Ireland",
     )
     _non_us_filter = "AND NOT (" + " OR ".join(
-        f"location LIKE '%{kw}%'" for kw in _non_us
+        f"COALESCE(location,'') LIKE '%{kw}%' OR COALESCE(title,'') LIKE '%{kw}%'" for kw in _non_us
     ) + ")"
 
     query = f"""

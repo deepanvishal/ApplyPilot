@@ -156,7 +156,9 @@ def _run_tailor(min_score: int = 7, validation_mode: str = "normal") -> dict:
 def _run_allocate(min_score: int = 7) -> dict:
     """Stage: Bayesian queue allocation → writes optimizer_rank to jobs."""
     try:
+        from applypilot.optimization.classify import run_classify_companies
         from applypilot.optimization.allocator import build_apply_queue
+        run_classify_companies()
         queue = build_apply_queue(min_score=min_score)
         return {"status": "ok", "queue_size": len(queue)}
     except Exception as e:
