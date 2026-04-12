@@ -308,7 +308,26 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             embedding_score     FLOAT,
             apply_status        TEXT,
             search_title        TEXT,
-            search_location     TEXT
+            search_location     TEXT,
+            source              TEXT DEFAULT 'serper'
+        )
+    """)
+
+    # Migrate: add source column if missing (existing DBs)
+    existing_cols = [r[1] for r in conn.execute("PRAGMA table_info(serper_jobs)").fetchall()]
+    if "source" not in existing_cols:
+        conn.execute("ALTER TABLE serper_jobs ADD COLUMN source TEXT DEFAULT 'serper'")
+
+    # Apify resume tracking — records completed title × location combos
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS apify_completed_combos (
+            title       TEXT NOT NULL,
+            location    TEXT NOT NULL,
+            days        INTEGER NOT NULL,
+            completed_at TEXT NOT NULL,
+            jobs_found  INTEGER DEFAULT 0,
+            inserted    INTEGER DEFAULT 0,
+            PRIMARY KEY (title, location, days)
         )
     """)
 
@@ -537,7 +556,7 @@ def get_stats(conn: sqlite3.Connection | None = None) -> dict:
 
     # Enrichment stage
     stats["pending_detail"] = conn.execute(
-        "SELECT COUNT(*) FROM jobs WHERE detail_scraped_at IS NULL"
+        "SELECT COUNT(*) FROM jobs WHERE full_description IS NULL AND detail_scraped_at IS NULL"
     ).fetchone()[0]
 
     stats["with_description"] = conn.execute(

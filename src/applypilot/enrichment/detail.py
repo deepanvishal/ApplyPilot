@@ -704,11 +704,43 @@ def _run_detail_scraper(
     """
     import threading
 
+    # Check proxy before including LinkedIn jobs
+    from applypilot.enrichment.linkedin_enrich import _load_proxy
+    import requests as _req
+    _proxy = _load_proxy()
+    _proxy_ok = False
+    if _proxy:
+        for _attempt in range(3):
+            try:
+                _req.get("https://api.ipify.org", proxies={"http": _proxy, "https": _proxy}, timeout=8)
+                _proxy_ok = True
+                break
+            except Exception:
+                pass
+        if not _proxy_ok:
+            log.error("Proxy check failed after 3 attempts — skipping LinkedIn jobs to protect your IP")
+    else:
+        log.error("No proxy configured — skipping LinkedIn jobs to protect your IP")
+
+    _site_filter = "" if _proxy_ok else "AND site != 'linkedin'"
+
+    # Exclude jobs with obviously non-US locations or titles
+    _non_us_keywords = (
+        "UK", "United Kingdom", "Canada", "Barcelona", "Spain", "Nepal",
+        "Germany", "France", "Australia", "India", "Remote - EU", "Netherlands",
+        "Switzerland", "Sweden", "Singapore", "Brazil", "Mexico", "Ireland",
+        "Zurich", "Utrecht", "Darlington", "Durham",
+    )
+    _non_us_filter = " AND NOT (" + " OR ".join(
+        f"location LIKE '%{kw}%' OR title LIKE '%{kw}%'" for kw in _non_us_keywords
+    ) + ")"
+
     rows = conn.execute(
-        "SELECT url, title, site FROM jobs "
-        "WHERE full_description IS NULL AND url IS NOT NULL "
-        "AND NOT (site = 'linkedin' AND detail_scraped_at IS NOT NULL) "
-        "ORDER BY site"
+        f"SELECT url, title, site FROM jobs "
+        f"WHERE full_description IS NULL AND url IS NOT NULL "
+        f"{_site_filter} "
+        f"{_non_us_filter} "
+        f"ORDER BY site"
     ).fetchall()
 
     if not rows:
@@ -824,9 +856,10 @@ def stream_detail(
         while True:
             rows = conn.execute(
                 "SELECT url, title, site FROM jobs "
-                "WHERE full_description IS NULL AND url IS NOT NULL "
-                "AND NOT (site = 'linkedin' AND detail_scraped_at IS NOT NULL) "
-                "ORDER BY site LIMIT 200"
+                "WHERE full_description IS NULL "
+                "AND detail_scraped_at IS NULL "
+                "AND url IS NOT NULL "
+                "ORDER BY site"
             ).fetchall()
 
             if rows:
@@ -863,7 +896,7 @@ def stream_detail(
 
 # -- Public entry point ------------------------------------------------------
 
-def run_enrichment(limit: int = 100, workers: int = 3) -> dict:
+def run_enrichment(limit: int = 0, workers: int = 3) -> dict:
     """Main entry point for detail page enrichment.
 
     Fetches pending jobs from the database (those without full_description),
@@ -913,6 +946,6 @@ def run_enrichment(limit: int = 100, workers: int = 3) -> dict:
             log.info("WTTJ: %d URLs updated", updated)
 
     # Run the detail scraper
-    stats = _run_detail_scraper(conn, max_per_site=limit, workers=workers)
+    stats = _run_detail_scraper(conn, max_per_site=limit if limit > 0 else None, workers=workers)
 
     return stats
