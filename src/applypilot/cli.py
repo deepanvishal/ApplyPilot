@@ -1048,13 +1048,13 @@ def optimize_queue_command(
     _bootstrap()
     from rich.table import Table
     from applypilot.optimization.allocator import get_allocation_preview, build_apply_queue
-    from applypilot.optimization.classify import run_classify_companies
+    from applypilot.optimization.ml_classify import run_ml_classify_companies
 
     console.print(f"\n[bold cyan]Optimize Queue[/bold cyan]  batch={batch_size}  min_score={min_score}\n")
 
     # Classify companies first so tier data is fresh before ranking
-    console.print("[dim]Classifying companies...[/dim]")
-    classify_result = run_classify_companies()
+    console.print("[dim]Classifying companies (ML)...[/dim]")
+    classify_result = run_ml_classify_companies()
     console.print(f"  Companies classified: {classify_result['updated']} updated, {classify_result['errors']} errors\n")
 
     preview_data = get_allocation_preview(batch_size=batch_size, min_score=min_score)

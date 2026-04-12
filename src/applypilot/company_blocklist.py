@@ -22,6 +22,16 @@ COMPANY_BLOCKLIST: list[str] = [
     "%ernst young%",
     "%ernst & young%",
     "%meta%",
+    "%apple%",
+    "%google%",
+    "%alphabet%",
+    "%deepmind%",
+    "%capital one%",
+    "%capitalone%",
+    "%cvs%",
+    "%cvs health%",
+    "%cvshealth%",
+    "%aetna%",
 ]
 
 # Exact case-sensitive matches (compared directly against company column, no lower()).
