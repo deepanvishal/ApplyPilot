@@ -34,7 +34,10 @@ DELAY = 0.5  # seconds between requests per worker
 
 
 def _load_proxy() -> str | None:
-    """Load proxy from env, returning requests-compatible URL string."""
+    """Load proxy from env, returning requests-compatible URL string.
+    Forces sticky session suffix (-1) instead of rotating (-rotate)
+    for better LinkedIn compatibility.
+    """
     load_env()
     raw = os.environ.get("PROXY") or os.environ.get("ROTATING_PROXY")
     if not raw:
@@ -42,6 +45,8 @@ def _load_proxy() -> str | None:
     parts = raw.split(":")
     if len(parts) == 4:
         host, port, user, passwd = parts
+        # Use sticky session (-1) instead of rotating for LinkedIn
+        user = re.sub(r"-rotate$", "-1", user)
         return f"http://{user}:{passwd}@{host}:{port}"
     elif len(parts) == 2:
         host, port = parts
@@ -77,18 +82,18 @@ def fetch_linkedin_guest(job_id: str, proxy: str | None) -> dict:
 
             if r.status_code == 404:
                 log.debug("Job %s not found (404)", job_id)
-                return {}
+                return {"_status": 404}
 
             if r.status_code == 429:
                 if attempt < 2:
                     log.warning("Rate limited on job %s, waiting 5s...", job_id)
                     time.sleep(5)
                     continue
-                return {}
+                return {"_status": 429}
 
             if r.status_code != 200:
                 log.warning("Job %s returned HTTP %d", job_id, r.status_code)
-                return {}
+                return {"_status": r.status_code}
 
             soup = BeautifulSoup(r.text, "html.parser")
 
@@ -149,22 +154,44 @@ def enrich_linkedin_jobs(
     """
     proxy = _load_proxy()
     if proxy:
-        log.info("Using proxy: %s", proxy[:30])
+        # Verify proxy is reachable before hitting LinkedIn
+        import requests as _req
+        proxy_ok = False
+        for attempt in range(3):
+            try:
+                _req.get("https://api.ipify.org", proxies={"http": proxy, "https": proxy}, timeout=8)
+                proxy_ok = True
+                break
+            except Exception:
+                pass
+        if proxy_ok:
+            log.info("Using proxy: %s", proxy[:30])
+        else:
+            log.error("Proxy check failed after 3 attempts — skipping LinkedIn enrichment to protect your IP")
+            return {"total": 0, "enriched": 0, "failed": 0, "elapsed": 0.0}
     else:
-        log.warning("No proxy configured — LinkedIn may rate limit after ~50 requests")
+        log.error("No proxy configured — skipping LinkedIn enrichment to protect your IP")
+        return {"total": 0, "enriched": 0, "failed": 0, "elapsed": 0.0}
 
     conn = get_connection()
 
-    query = """
+    _non_us = (
+        "UK", "United Kingdom", "Canada", "Barcelona", "Spain", "Nepal",
+        "Germany", "France", "Australia", "India", "Remote - EU", "Netherlands",
+        "Switzerland", "Sweden", "Singapore", "Brazil", "Mexico", "Ireland",
+    )
+    _non_us_filter = "AND NOT (" + " OR ".join(
+        f"location LIKE '%{kw}%'" for kw in _non_us
+    ) + ")"
+
+    query = f"""
         SELECT url, title, company
         FROM jobs
         WHERE site = 'linkedin'
-        AND full_description IS NULL
-        AND (
-            application_url IS NULL
-            OR application_url IN ('', 'None', 'nan')
-        )
+        AND (full_description IS NULL OR application_url IS NULL OR application_url IN ('', 'None', 'nan'))
+        AND detail_scraped_at IS NULL
         AND url LIKE '%linkedin.com/jobs/view/%'
+        {_non_us_filter}
         ORDER BY discovered_at DESC
     """
     if limit > 0:
@@ -215,12 +242,14 @@ def enrich_linkedin_jobs(
                     url,
                 ))
             else:
+                status = data.get("_status")
+                error = f"HTTP {status}" if status else "linkedin_guest_no_content"
                 c.execute("""
                     UPDATE jobs SET
                         detail_scraped_at = datetime('now'),
-                        detail_error = 'linkedin_guest_no_content'
+                        detail_error = ?
                     WHERE url = ?
-                """, (url,))
+                """, (error, url,))
             c.commit()
 
         return bool(data.get("full_description"))

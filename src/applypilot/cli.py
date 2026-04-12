@@ -761,7 +761,7 @@ def exploreemail(
 
 @app.command()
 def enrich(
-    limit: int = typer.Option(100, "--limit", help="Max jobs per site to enrich."),
+    limit: int = typer.Option(0, "--limit", help="Max jobs per site to enrich (0 = no limit)."),
     workers: int = typer.Option(3, "--workers", help="Parallel enrichment workers (default 3, max 5)."),
 ) -> None:
     """Scrape full descriptions and apply URLs for jobs missing full_description.
@@ -875,6 +875,42 @@ def exploreserper(
     console.print(f"\n  [cyan]Dedup[/cyan]")
     console.print(f"    Removed:      {dedup.get('removed', 0)} duplicates")
     console.print(f"\n  [bold]Total inserted: {result.get('total_inserted', 0)}[/bold]\n")
+    if dry_run:
+        console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
+
+
+@app.command(name="exploreapify")
+def exploreapify(
+    days: int = typer.Option(7, "--days", "-d", help="Jobs posted in last N days."),
+    workers: int = typer.Option(20, "--workers", "-w", help="Parallel actor runs."),
+    limit: int = typer.Option(0, "--limit", "-n", help="Max jobs per combo (0 = actor default)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Log without writing to DB."),
+    titles: list[str] = typer.Option(None, "--title", help="Override titles (repeatable)."),
+    locations: list[str] = typer.Option(None, "--location", help="Override locations (repeatable)."),
+) -> None:
+    """Discover LinkedIn jobs via Apify scraper → serper_jobs table.
+
+    Uses curious_coder/linkedin-jobs-scraper actor. Requires APIFY_API_TOKEN in .env.
+
+    Examples:
+        applypilot exploreapify
+        applypilot exploreapify --days 1 --title "Senior Data Scientist" --location "Dallas, TX"
+        applypilot exploreapify --dry-run
+    """
+    _bootstrap()
+    from applypilot.apify.pipeline import run_apify_jobs
+    result = run_apify_jobs(
+        date_since_days=days,
+        workers=workers,
+        dry_run=dry_run,
+        limit=limit,
+        titles_override=titles if titles else None,
+        locations_override=locations if locations else None,
+    )
+    console.print("\n[bold]Apify Explore Complete[/bold]")
+    console.print(f"  Jobs found:   {result.get('total_jobs', 0)}")
+    console.print(f"  Inserted:     {result.get('total_inserted', 0)}")
+    console.print(f"  Skipped:      {result.get('total_skipped', 0)}")
     if dry_run:
         console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
 
