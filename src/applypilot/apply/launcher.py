@@ -135,7 +135,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
-                  AND (predicted_expiry IS NULL OR predicted_expiry = 'active')
+                  AND (predicted_expiry IS NULL OR predicted_expiry IN ('active', 'unknown'))
                   {site_clause}
                   {url_clauses}
                 ORDER BY

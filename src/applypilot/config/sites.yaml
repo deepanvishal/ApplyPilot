@@ -24,6 +24,9 @@ blocked:
     - "%google.jobs%"
     - "%accenture%"
     - "%workopolis.com/out%"
+    - "%jobilize.com%"
+    - "%jobleads.com%"
+    - "%jobs.stevenagefc.com%"
 
 # ── Blocked SSO domains — cannot authenticate through these ──────────────
 blocked_sso:

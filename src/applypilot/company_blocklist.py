@@ -23,6 +23,7 @@ COMPANY_BLOCKLIST: list[str] = [
     "%ernst & young%",
     "%meta%",
     "%apple%",
+    "%audible%",
     "%google%",
     "%alphabet%",
     "%deepmind%",
