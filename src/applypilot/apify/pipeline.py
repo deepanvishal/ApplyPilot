@@ -64,24 +64,20 @@ def _pick_apply_url(job: dict) -> str | None:
     """Extract best apply URL from Apify job result.
 
     Priority:
-    1. companyApplyUrl from applyMethod (direct ATS)
-    2. easyApplyUrl from applyMethod (LinkedIn Easy Apply)
-    3. companyWebsite (career page)
-    4. LinkedIn job link as fallback
+    1. applyUrl top-level field (direct ATS link)
+    2. companyApplyUrl from applyMethod
+    3. LinkedIn job link as fallback
     """
+    # Top-level direct ATS link — most reliable
+    apply_url = job.get("applyUrl") or ""
+    if apply_url and not any(d in apply_url.lower() for d in _AGGREGATOR_DOMAINS):
+        return apply_url.split("?")[0] if "utm_" in apply_url else apply_url
+
     apply_method = job.get("applyMethod") or {}
-    if not isinstance(apply_method, dict):
-        apply_method = {}
-
-    # Direct company ATS link
-    company_url = apply_method.get("companyApplyUrl", "")
-    if company_url and not any(d in company_url.lower() for d in _AGGREGATOR_DOMAINS):
-        return company_url.split("?")[0] if "utm_" in company_url else company_url
-
-    # LinkedIn Easy Apply
-    easy_url = apply_method.get("easyApplyUrl", "")
-    if easy_url:
-        return easy_url
+    if isinstance(apply_method, dict):
+        company_url = apply_method.get("companyApplyUrl", "")
+        if company_url and not any(d in company_url.lower() for d in _AGGREGATOR_DOMAINS):
+            return company_url.split("?")[0] if "utm_" in company_url else company_url
 
     # Fall back to LinkedIn job link
     return job.get("link", "")
@@ -170,6 +166,14 @@ def _run_actor_combo(
 
         description = job.get("descriptionText", "") or ""
 
+        industries = job.get("industries")
+        if isinstance(industries, list):
+            industries = ", ".join(industries)
+        job_function = job.get("jobFunction")
+        if isinstance(job_function, list):
+            job_function = ", ".join(job_function)
+        standardized_title = job.get("standardizedTitle") or ""
+
         if dry_run:
             log.info("[DRY RUN] %s @ %s — %s", job.get("title"), job.get("companyName"), canonical_url)
             inserted += 1
@@ -181,8 +185,9 @@ def _run_actor_combo(
                     INSERT OR IGNORE INTO serper_jobs
                     (job_id, title, company, location, posted_date,
                      url, apply_url, full_description, ats_type,
-                     discovered_at, search_title, search_location, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, 'apify')
+                     discovered_at, search_title, search_location, source,
+                     standardized_title, industries, job_function)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, 'apify', ?, ?, ?)
                 """, (
                     job_id,
                     job.get("title", ""),
@@ -195,6 +200,9 @@ def _run_actor_combo(
                     ats_type,
                     title,
                     location,
+                    standardized_title,
+                    industries,
+                    job_function,
                 ))
                 conn.commit()
                 if conn.execute("SELECT changes()").fetchone()[0] > 0:
@@ -268,20 +276,8 @@ def run_apify_jobs(
     locations = locations_override or load_locations()
     combos    = [(t, loc) for t in titles for loc in locations]
 
-    # Resume support: skip combos already completed for this date range
     from applypilot.database import get_connection as _get_conn
     _conn = _get_conn()
-    done = {
-        (r[0], r[1])
-        for r in _conn.execute(
-            "SELECT title, location FROM apify_completed_combos WHERE days=?",
-            (date_since_days,)
-        ).fetchall()
-    }
-    if done:
-        skipped_combos = [(t, l) for t, l in combos if (t, l) in done]
-        combos = [(t, l) for t, l in combos if (t, l) not in done]
-        log.info("Resuming: skipping %d already-completed combos", len(skipped_combos))
 
     log.info(
         "Apify LinkedIn: %d titles × %d locations = %d combos | days=%d workers=%d dry_run=%s",
@@ -309,14 +305,6 @@ def run_apify_jobs(
                     stats["total_inserted"] += result["inserted"]
                     stats["total_skipped"]  += result["skipped"]
                     stats["total_jobs"]     += result["jobs_found"]
-                    # Mark combo as complete for resume support
-                    if not dry_run:
-                        _conn.execute("""
-                            INSERT OR REPLACE INTO apify_completed_combos
-                            (title, location, days, completed_at, jobs_found, inserted)
-                            VALUES (?, ?, ?, datetime('now'), ?, ?)
-                        """, (title, location, date_since_days, result["jobs_found"], result["inserted"]))
-                        _conn.commit()
                 log.info(
                     "[%d/%d] %r × %r — found=%d inserted=%d skipped=%d",
                     completed, len(combos),
@@ -332,3 +320,167 @@ def run_apify_jobs(
     log.info("=" * 60)
 
     return stats
+
+
+def backfill_apify_datasets() -> dict:
+    """Backfill serper_jobs from all historical Apify run datasets.
+
+    For every succeeded run ever, fetches applyUrl + standardized_title +
+    industries + jobFunction and updates matching serper_jobs rows.
+    After updating serper_jobs, swaps application_url in jobs table where
+    we now have a real ATS URL.
+
+    Returns:
+        {runs_processed, items_seen, serper_updated, jobs_swapped}
+    """
+    from apify_client import ApifyClient
+    from applypilot.database import get_connection
+    from applypilot.utils.job_id import extract_job_id
+
+    token = _load_token()
+    client = ApifyClient(token)
+    conn = get_connection()
+
+    # Collect all run dataset IDs
+    all_runs = []
+    offset = 0
+    while True:
+        batch = client.actor(ACTOR_ID).runs().list(limit=200, offset=offset).items
+        if not batch:
+            break
+        all_runs.extend(batch)
+        offset += len(batch)
+        if len(batch) < 200:
+            break
+
+    log.info("Backfill: %d total Apify runs to process", len(all_runs))
+
+    # Collect all items across all runs, dedup by job_id in memory.
+    # Prefer the record that has a real applyUrl; otherwise keep latest seen.
+    best: dict[str, dict] = {}  # job_id -> best item
+    runs_processed = 0
+    items_seen = 0
+
+    for run in all_runs:
+        dataset_id = run.get("defaultDatasetId")
+        if not dataset_id:
+            continue
+        try:
+            items = list(client.dataset(dataset_id).iterate_items())
+        except Exception as e:
+            log.warning("Could not fetch dataset %s: %s", dataset_id, e)
+            continue
+
+        for job in items:
+            items_seen += 1
+            job_id = str(job.get("id", ""))
+            if not job_id:
+                continue
+            apply_url = _pick_apply_url(job)
+            has_ats = apply_url and "linkedin.com" not in apply_url
+            existing = best.get(job_id)
+            if existing is None:
+                best[job_id] = job
+            elif has_ats and not (
+                _pick_apply_url(existing) and "linkedin.com" not in _pick_apply_url(existing)
+            ):
+                # Upgrade to this record since it has a real ATS URL
+                best[job_id] = job
+
+        runs_processed += 1
+        if runs_processed % 50 == 0:
+            log.info("Fetched %d/%d runs | items_seen=%d unique_jobs=%d",
+                     runs_processed, len(all_runs), items_seen, len(best))
+
+    log.info("Dedup complete: %d items across %d runs → %d unique jobs",
+             items_seen, runs_processed, len(best))
+
+    # Single pass DB update
+    serper_updated = 0
+    for job_id, job in best.items():
+        apply_url = _pick_apply_url(job)
+        industries = job.get("industries")
+        if isinstance(industries, list):
+            industries = ", ".join(industries)
+        job_function = job.get("jobFunction")
+        if isinstance(job_function, list):
+            job_function = ", ".join(job_function)
+        standardized_title = job.get("standardizedTitle") or None
+
+        conn.execute("""
+            UPDATE serper_jobs SET
+                apply_url          = CASE
+                    WHEN ? IS NOT NULL AND ? != '' AND ? NOT LIKE '%linkedin.com%'
+                    THEN ?
+                    ELSE apply_url
+                END,
+                standardized_title = COALESCE(standardized_title, ?),
+                industries         = COALESCE(industries, ?),
+                job_function       = COALESCE(job_function, ?)
+            WHERE job_id = ? AND source = 'apify'
+        """, (
+            apply_url, apply_url, apply_url, apply_url,
+            standardized_title, industries, job_function,
+            job_id,
+        ))
+        if conn.execute("SELECT changes()").fetchone()[0] > 0:
+            serper_updated += 1
+
+    conn.commit()
+    log.info("Backfill serper_jobs done: runs=%d unique_jobs=%d updated=%d",
+             runs_processed, len(best), serper_updated)
+
+    # Swap application_url in jobs table where serper now has a real ATS URL
+    jobs_swapped = _swap_jobs_application_urls(conn)
+    log.info("Jobs application_url swapped: %d", jobs_swapped)
+
+    return {
+        "runs_processed": runs_processed,
+        "items_seen": items_seen,
+        "serper_updated": serper_updated,
+        "jobs_swapped": jobs_swapped,
+    }
+
+
+def _swap_jobs_application_urls(conn) -> int:
+    """Update jobs.application_url where serper_jobs now has a real ATS URL.
+
+    Matches on linkedin job ID: serper_jobs.job_id <-> jobs.url_job_id = 'linkedin:{job_id}'
+    Only swaps when the new URL is not a LinkedIn URL.
+    """
+    from applypilot.utils.job_id import extract_job_id
+
+    rows = conn.execute("""
+        SELECT sj.job_id, sj.apply_url
+        FROM serper_jobs sj
+        WHERE sj.source = 'apify'
+        AND sj.apply_url IS NOT NULL
+        AND sj.apply_url != ''
+        AND sj.apply_url NOT LIKE '%linkedin.com%'
+        AND EXISTS (
+            SELECT 1 FROM jobs j
+            WHERE j.url_job_id = 'linkedin:' || sj.job_id
+        )
+    """).fetchall()
+
+    swapped = 0
+    for job_id, apply_url in rows:
+        app_url_job_id = extract_job_id(apply_url)
+        conn.execute("""
+            UPDATE jobs SET
+                application_url  = ?,
+                app_url_job_id   = ?,
+                site             = ?
+            WHERE url_job_id = 'linkedin:' || ?
+            AND (application_url IS NULL OR application_url = '' OR application_url LIKE '%linkedin.com%')
+        """, (
+            apply_url,
+            app_url_job_id,
+            _infer_ats_type(apply_url),
+            job_id,
+        ))
+        if conn.execute("SELECT changes()").fetchone()[0] > 0:
+            swapped += 1
+
+    conn.commit()
+    return swapped

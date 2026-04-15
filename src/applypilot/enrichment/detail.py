@@ -634,7 +634,8 @@ def scrape_site_batch(
     try:
         with sync_playwright() as p:
             launch_opts: dict = {"headless": True}
-            if _PROXY_CONFIG:
+            # Only use proxy for LinkedIn — other ATS sites block/timeout on proxy IPs
+            if _PROXY_CONFIG and site == "linkedin":
                 launch_opts["proxy"] = _PROXY_CONFIG["playwright"]
             browser = p.chromium.launch(**launch_opts)
             context = browser.new_context(user_agent=UA)
@@ -738,6 +739,7 @@ def _run_detail_scraper(
     rows = conn.execute(
         f"SELECT url, title, site FROM jobs "
         f"WHERE full_description IS NULL AND url IS NOT NULL "
+        f"AND detail_error IS NULL "
         f"{_site_filter} "
         f"{_non_us_filter} "
         f"ORDER BY site"
@@ -910,6 +912,16 @@ def run_enrichment(limit: int = 0, workers: int = 3) -> dict:
     Returns:
         Dict with stats: processed, ok, partial, error, tiers.
     """
+    # Auto-load proxy from env so Playwright uses it for LinkedIn
+    from applypilot.enrichment.linkedin_enrich import _load_proxy
+    _proxy_url = _load_proxy()  # already http://user:pass@host:port
+    if _proxy_url:
+        global _PROXY_CONFIG
+        _PROXY_CONFIG = {"playwright": {"server": _proxy_url}}
+        log.info("Playwright proxy loaded from env: %s", _proxy_url[:30])
+    else:
+        log.warning("No proxy configured — LinkedIn Playwright scraping may be blocked")
+
     conn = init_db()
 
     # Pre-step: LinkedIn guest API enrichment
@@ -927,6 +939,15 @@ def run_enrichment(limit: int = 0, workers: int = 3) -> dict:
         li_stats = enrich_linkedin_jobs(workers=workers)
         log.info("LinkedIn pre-enrichment done: %d/%d enriched",
                  li_stats["enriched"], li_stats["total"])
+
+    # ATS URL enrichment — visit LinkedIn job pages with logged-in browser
+    # to extract real external apply URLs (or mark as Easy Apply)
+    from applypilot.enrichment.linkedin_enrich import enrich_linkedin_ats_urls
+    ats_stats = enrich_linkedin_ats_urls(workers=min(workers, 5))
+    log.info(
+        "LinkedIn ATS enrichment: enriched=%d easy_apply=%d failed=%d",
+        ats_stats["enriched"], ats_stats["easy_apply"], ats_stats["failed"],
+    )
 
     # URL resolution first
     url_stats = resolve_all_urls(conn)
@@ -947,5 +968,13 @@ def run_enrichment(limit: int = 0, workers: int = 3) -> dict:
 
     # Run the detail scraper
     stats = _run_detail_scraper(conn, max_per_site=limit if limit > 0 else None, workers=workers)
+
+    # Dedup after enrichment — application_url is now populated so rounds 1 & 4
+    # can collapse jobs that map to the same ATS URL or app_url_job_id
+    from applypilot.database import dedup_jobs
+    dedup_result = dedup_jobs()
+    log.info("Post-enrich dedup: %d removed (%d → %d)",
+             dedup_result["removed"], dedup_result["before"], dedup_result["after"])
+    stats["dedup_removed"] = dedup_result["removed"]
 
     return stats

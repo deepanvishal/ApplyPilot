@@ -283,3 +283,216 @@ def enrich_linkedin_jobs(
         "failed": failed,
         "elapsed": elapsed,
     }
+
+
+# ---------------------------------------------------------------------------
+# ATS URL enrichment for LinkedIn jobs (logged-in browser pass)
+# ---------------------------------------------------------------------------
+
+# Worker IDs reserved for ATS enrichment — well above apply workers (0-3)
+_ATS_ENRICH_WORKER_BASE = 20
+
+# LinkedIn Apply button selectors — external ATS links use <a>, Easy Apply uses <button>
+_LI_EXTERNAL_APPLY_SELECTORS = [
+    'a.jobs-apply-button',
+    'a[data-tracking-control-name*="apply"]',
+    'a[href*="/apply/"]',
+    'a.jobs-s-apply__link',
+    'a[class*="apply-button"]',
+    'a[aria-label*="Apply"]',
+]
+_LI_EASY_APPLY_SELECTORS = [
+    'button.jobs-apply-button',
+    'button[aria-label*="Easy Apply"]',
+    'button[data-tracking-control-name*="easy-apply"]',
+    'button[class*="apply-button"]',
+]
+
+
+def enrich_linkedin_ats_urls(
+    workers: int = 5,
+    limit: int = 500,
+) -> dict:
+    """Fetch the real ATS apply URL for LinkedIn jobs that have no application_url.
+
+    Uses Playwright with a persistent Chrome profile (logged-in LinkedIn session)
+    and the rotating proxy to avoid rate limits. Runs on dedicated worker IDs
+    (20+) that never conflict with apply workers (0-3).
+
+    - External apply link found  → writes application_url + app_url_job_id
+    - Easy Apply (no external)   → sets apply_status = 'linkedin_easy_apply'
+    - Page error / no button     → logs and moves on (retried next enrich run)
+
+    Args:
+        workers: Parallel browser workers (default 5).
+        limit:   Max jobs to process per run (0 = all).
+
+    Returns:
+        {total, enriched, easy_apply, failed, elapsed}
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+    from playwright.sync_api import sync_playwright
+    from applypilot.apply.chrome import setup_worker_profile
+    from applypilot.config import get_chrome_path
+    import time as _time
+
+    proxy = _load_proxy()
+
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT url FROM jobs
+        WHERE site = 'linkedin'
+        AND url LIKE '%linkedin.com/jobs/view/%'
+        AND (
+            application_url IS NULL
+            OR application_url = ''
+            OR application_url LIKE '%linkedin.com%'
+        )
+        AND applied_at IS NULL
+        AND (apply_status IS NULL OR apply_status NOT IN (
+            'applied', 'failed', 'manual', 'Not in US', 'linkedin_easy_apply'
+        ))
+        ORDER BY fit_score DESC NULLS LAST, discovered_at DESC
+    """).fetchall()
+
+    if limit > 0:
+        rows = rows[:limit]
+
+    total = len(rows)
+    if not total:
+        log.info("LinkedIn ATS enrichment: nothing to process")
+        return {"total": 0, "enriched": 0, "easy_apply": 0, "failed": 0, "elapsed": 0.0}
+
+    log.info("LinkedIn ATS enrichment: %d jobs, %d workers", total, workers)
+
+    enriched = 0
+    easy_apply_count = 0
+    failed = 0
+    lock = threading.Lock()
+    start = _time.time()
+
+    # Distribute URLs round-robin across workers
+    chunks: list[list[str]] = [[] for _ in range(workers)]
+    for i, row in enumerate(rows):
+        chunks[i % workers].append(row["url"])
+
+    def _process_chunk(slot: int, urls: list[str]) -> tuple[int, int, int]:
+        _enriched = _easy = _failed = 0
+        worker_id = _ATS_ENRICH_WORKER_BASE + slot
+        proc = None
+
+        try:
+            from applypilot.apply.chrome import launch_chrome, cleanup_worker, BASE_CDP_PORT
+
+            # Launch real Chrome (not Playwright Chromium) so DPAPI cookie
+            # decryption works and LinkedIn session is active
+            proc = launch_chrome(worker_id, headless=True)
+            port = BASE_CDP_PORT + worker_id
+
+            with sync_playwright() as p:
+                browser = p.chromium.connect_over_cdp(f"http://localhost:{port}")
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.new_page()
+
+                all_apply_sels = ", ".join(_LI_EXTERNAL_APPLY_SELECTORS + _LI_EASY_APPLY_SELECTORS)
+
+                for idx, url in enumerate(urls):
+                    try:
+                        page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                        try:
+                            page.wait_for_selector(all_apply_sels, timeout=5000)
+                        except Exception:
+                            pass
+
+                        if (idx + 1) % 25 == 0:
+                            log.info("Worker %d: %d/%d (enriched=%d easy=%d failed=%d)",
+                                     slot, idx + 1, len(urls), _enriched, _easy, _failed)
+
+                        # Try external apply link first
+                        ats_url = None
+                        for sel in _LI_EXTERNAL_APPLY_SELECTORS:
+                            try:
+                                el = page.query_selector(sel)
+                                if el:
+                                    href = el.get_attribute("href") or ""
+                                    if href and "linkedin.com" not in href and href != "#":
+                                        ats_url = href.split("?")[0] if "utm_" in href else href
+                                        break
+                            except Exception:
+                                continue
+
+                        if ats_url:
+                            from applypilot.utils.job_id import extract_job_id
+                            c = get_connection()
+                            c.execute(
+                                "UPDATE jobs SET application_url = ?, app_url_job_id = ? WHERE url = ?",
+                                (ats_url, extract_job_id(ats_url), url),
+                            )
+                            c.commit()
+                            _enriched += 1
+                            log.info("ATS URL: %s -> %s", url.split("/")[-1], ats_url[:80])
+                            continue
+
+                        # Check for Easy Apply button
+                        is_easy = False
+                        for sel in _LI_EASY_APPLY_SELECTORS:
+                            try:
+                                if page.query_selector(sel):
+                                    is_easy = True
+                                    break
+                            except Exception:
+                                continue
+
+                        if is_easy:
+                            c = get_connection()
+                            c.execute(
+                                "UPDATE jobs SET apply_status = 'linkedin_easy_apply' WHERE url = ?",
+                                (url,),
+                            )
+                            c.commit()
+                            _easy += 1
+                            log.debug("Easy Apply: %s", url.split("/")[-1])
+                        else:
+                            _failed += 1
+                            log.debug("No apply button: %s", url)
+
+                    except Exception as e:
+                        _failed += 1
+                        log.debug("Error on %s: %s", url, e)
+
+                page.close()
+                browser.close()
+
+        except Exception as e:
+            log.error("ATS enrichment worker %d crashed: %s", worker_id, e)
+            _failed += len(urls)
+        finally:
+            if proc:
+                cleanup_worker(worker_id, proc)
+
+        return _enriched, _easy, _failed
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_process_chunk, slot, chunk): slot
+            for slot, chunk in enumerate(chunks) if chunk
+        }
+        for future in _as_completed(futures):
+            e, ea, f = future.result()
+            with lock:
+                enriched += e
+                easy_apply_count += ea
+                failed += f
+
+    elapsed = round(_time.time() - start, 2)
+    log.info(
+        "LinkedIn ATS enrichment done: enriched=%d easy_apply=%d failed=%d in %.1fs",
+        enriched, easy_apply_count, failed, elapsed,
+    )
+    return {
+        "total": total,
+        "enriched": enriched,
+        "easy_apply": easy_apply_count,
+        "failed": failed,
+        "elapsed": elapsed,
+    }

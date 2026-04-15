@@ -124,22 +124,28 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> dict:
         if dry_run:
             continue
 
+        from applypilot.utils.job_id import extract_job_id
+        _url = job.get("url")
+        _app_url = job.get("application_url")
         cur = conn.execute("""
             INSERT OR IGNORE INTO jobs (
                 url, title, company, location,
                 full_description, description,
-                application_url, site, discovered_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                application_url, site, discovered_at,
+                url_job_id, app_url_job_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            job.get("url"),
+            _url,
             job.get("title"),
             job.get("company"),
             job.get("location"),
             job.get("full_description"),
             job.get("description"),
-            job.get("application_url"),
+            _app_url,
             "ashby",
             job.get("discovered_at"),
+            extract_job_id(_url),
+            extract_job_id(_app_url),
         ))
 
         if cur.rowcount > 0:

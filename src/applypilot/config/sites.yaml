@@ -27,6 +27,7 @@ blocked:
     - "%jobilize.com%"
     - "%jobleads.com%"
     - "%jobs.stevenagefc.com%"
+    - "%capgemini%"
 
 # ── Blocked SSO domains — cannot authenticate through these ──────────────
 blocked_sso:

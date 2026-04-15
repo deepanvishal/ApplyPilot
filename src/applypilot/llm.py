@@ -142,7 +142,12 @@ class LLMClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        candidate = data.get("candidates", [{}])[0]
+        content = candidate.get("content")
+        if not content:
+            finish = candidate.get("finishReason", "UNKNOWN")
+            raise ValueError(f"Gemini returned no content (finishReason={finish})")
+        return content["parts"][0]["text"]
 
     # -- OpenAI-compat API --------------------------------------------------
 

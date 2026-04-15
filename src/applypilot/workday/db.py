@@ -137,13 +137,15 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
             log.info("DEBUG INSERT url=%r title=%r application_url=%r", url, title, application_url)
             _debug_printed += 1
 
+        from applypilot.utils.job_id import extract_job_id
         cur = conn.execute("""
             INSERT OR IGNORE INTO jobs (
                 url, title, company, location,
                 full_description, description,
                 application_url, site,
-                discovered_at, apply_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                discovered_at, apply_status,
+                url_job_id, app_url_job_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             url,
             title,
@@ -155,6 +157,8 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
             "workday",
             job.get("discovered_at"),
             job.get("apply_status"),
+            extract_job_id(url),
+            extract_job_id(application_url),
         ))
 
         if cur.rowcount > 0:

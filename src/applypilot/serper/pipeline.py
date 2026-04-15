@@ -627,30 +627,39 @@ def promote_serper_jobs_to_jobs() -> int:
     conn = get_connection()
     now = datetime.utcnow().isoformat()
 
-    before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    from applypilot.utils.job_id import extract_job_id
 
-    conn.execute(f"""
-        INSERT OR IGNORE INTO jobs
-            (url, title, company, location, site, strategy,
-             application_url, full_description, discovered_at)
-        SELECT
-            COALESCE(NULLIF(sj.apply_url, ''), sj.url),
-            sj.title,
-            sj.company,
-            sj.location,
-            sj.ats_type,
-            'serpapi',
-            COALESCE(NULLIF(sj.apply_url, ''), sj.url),
-            sj.full_description,
-            COALESCE(sj.discovered_at, '{now}')
+    rows = conn.execute("""
+        SELECT sj.url, sj.apply_url, sj.title, sj.company, sj.location,
+               sj.ats_type, sj.full_description, sj.discovered_at
         FROM serper_jobs sj
         WHERE COALESCE(NULLIF(sj.apply_url, ''), sj.url) IS NOT NULL
           AND COALESCE(NULLIF(sj.apply_url, ''), sj.url) != ''
-    """)
+    """).fetchall()
+
+    inserted = 0
+    for r in rows:
+        canonical_url = (r["apply_url"] or "").strip() or r["url"]
+        application_url = None if r["ats_type"] == "linkedin" else canonical_url
+        cur = conn.execute("""
+            INSERT OR IGNORE INTO jobs
+                (url, title, company, location, site, strategy,
+                 application_url, full_description, discovered_at,
+                 url_job_id, app_url_job_id)
+            VALUES (?, ?, ?, ?, ?, 'serpapi', ?, ?, ?, ?, ?)
+        """, (
+            canonical_url,
+            r["title"], r["company"], r["location"], r["ats_type"],
+            application_url,
+            r["full_description"],
+            r["discovered_at"] or now,
+            extract_job_id(canonical_url),
+            extract_job_id(application_url) if application_url else None,
+        ))
+        if cur.rowcount > 0:
+            inserted += 1
     conn.commit()
 
-    after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-    inserted = after - before
     log.info("promote_serper_jobs_to_jobs: inserted %d new jobs", inserted)
     return inserted
 
@@ -660,15 +669,21 @@ def promote_serper_jobs_to_jobs() -> int:
 # ---------------------------------------------------------------------------
 
 def dedup_serper_jobs() -> dict:
-    """Deduplicate serper_jobs by url, keeping the row with the most data (apply_url set).
+    """Deduplicate serper_jobs in two rounds.
+
+    Round 1 — by url: keeps the highest-id row per url (prefers rows with apply_url set).
+    Round 2 — by extracted job ID: collapses rows where the same ATS job ID appears
+              under different URL variants (e.g. LinkedIn slug vs. bare numeric URL).
+              Keeps the row with apply_url set, or highest id as tiebreak.
 
     Returns dict with before/after/removed counts.
     """
+    from applypilot.utils.job_id import extract_job_id
+
     conn = get_connection()
     before = conn.execute("SELECT COUNT(*) FROM serper_jobs").fetchone()[0]
 
-    # Keep the row with the highest id (most recently inserted) when url dupes exist.
-    # Prefer rows that have an apply_url set.
+    # Round 1: dedup by url — keep highest id per url
     conn.execute("""
         DELETE FROM serper_jobs
         WHERE id NOT IN (
@@ -678,6 +693,32 @@ def dedup_serper_jobs() -> dict:
         )
     """)
     conn.commit()
+
+    # Round 2: dedup by extracted job ID — collapse same job under different URLs
+    rows = conn.execute("SELECT id, url, apply_url FROM serper_jobs").fetchall()
+
+    # Group by job ID, collecting (id, has_apply_url)
+    from collections import defaultdict
+    groups: dict[str, list[tuple[int, bool]]] = defaultdict(list)
+    for r in rows:
+        jid = extract_job_id(r["apply_url"]) or extract_job_id(r["url"])
+        if jid:
+            groups[jid].append((r["id"], bool(r["apply_url"])))
+
+    # Within each group keep one: prefer has_apply_url=True, then highest id
+    to_delete: list[int] = []
+    for jid, entries in groups.items():
+        if len(entries) <= 1:
+            continue
+        entries.sort(key=lambda e: (not e[1], -e[0]))  # has_apply first, highest id
+        to_delete.extend(e[0] for e in entries[1:])
+
+    if to_delete:
+        conn.execute(
+            f"DELETE FROM serper_jobs WHERE id IN ({','.join('?' * len(to_delete))})",
+            to_delete,
+        )
+        conn.commit()
 
     after = conn.execute("SELECT COUNT(*) FROM serper_jobs").fetchone()[0]
     removed = before - after

@@ -52,12 +52,23 @@ def _compute_bayesian_rates() -> tuple[dict[str, float], float]:
     total_companies = sum((r["total"] or 1) for r in rows)
     global_rate = total_responded / total_companies if total_companies > 0 else 0.01
 
-    rates: dict[str, float] = {}
+    _TIER_MAP_BAYES = {
+        "faang": "faang", "tier1": "faang",
+        "enterprise": "enterprise", "tier2": "enterprise",
+        "startup": "startup", "tier3": "startup",
+        "unknown": "unknown",
+    }
+    # Aggregate by normalized segment before computing rates
+    agg: dict[str, dict] = defaultdict(lambda: {"responded": 0, "total": 0})
     for r in rows:
-        responded = r["responded"] or 0
-        total = r["total"] or 1
-        bayes = (responded + PRIOR_STRENGTH * global_rate) / (total + PRIOR_STRENGTH)
-        rates[r["segment"]] = bayes
+        seg = _TIER_MAP_BAYES.get(r["segment"], "unknown")
+        agg[seg]["responded"] += r["responded"] or 0
+        agg[seg]["total"] += r["total"] or 1
+
+    rates: dict[str, float] = {}
+    for seg, d in agg.items():
+        bayes = (d["responded"] + PRIOR_STRENGTH * global_rate) / (d["total"] + PRIOR_STRENGTH)
+        rates[seg] = bayes
 
     return rates, global_rate
 
@@ -117,10 +128,19 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
         log.warning("No eligible jobs found for optimization")
         return []
 
-    # Step 3: Group by segment
+    _TIER_MAP = {
+        "faang": "faang", "tier1": "faang",
+        "enterprise": "enterprise", "tier2": "enterprise",
+        "startup": "startup", "tier3": "startup",
+        "unknown": "unknown",
+    }
+
+    # Step 3: Group by segment (normalize inconsistent tier labels)
     by_segment: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
-        by_segment[r["segment"]].append(dict(r))
+        job = dict(r)
+        job["segment"] = _TIER_MAP.get(r["segment"], "unknown")
+        by_segment[job["segment"]].append(job)
 
     # Step 4: Bayesian rates
     bayes_rates, global_rate = _compute_bayesian_rates()
@@ -132,8 +152,9 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
     for seg in by_segment:
         seg_rates[seg] = max(bayes_rates.get(seg, global_rate), floor)
 
-    # Step 5: Compute per-batch slots per segment (the mix rhythm)
-    # weight = rate × available
+    # Step 5: Proportional slot allocation for first batch
+    seg_order = sorted(by_segment, key=lambda s: seg_rates.get(s, 0), reverse=True)
+
     weights = {seg: seg_rates[seg] * len(jobs) for seg, jobs in by_segment.items()}
     total_weight = sum(weights.values()) or 1.0
 
@@ -141,13 +162,12 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
     for seg in by_segment:
         proportion = weights[seg] / total_weight
         raw = max(1, round(proportion * batch_size))
-        slots[seg] = min(raw, len(by_segment[seg]))  # cap at available
+        slots[seg] = min(raw, len(by_segment[seg]))
 
-    # Redistribute excess slots to segments with remaining capacity,
-    # in order of response rate (highest rate absorbs first)
+    # Cascade unused slots to next highest response rate segment
     remaining = batch_size - sum(slots.values())
     if remaining > 0:
-        for seg in sorted(by_segment, key=lambda s: seg_rates.get(s, 0), reverse=True):
+        for seg in seg_order:
             if remaining <= 0:
                 break
             capacity = len(by_segment[seg]) - slots[seg]
@@ -156,34 +176,59 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
                 slots[seg] += give
                 remaining -= give
 
-    # Log allocation plan
-    seg_order = sorted(by_segment, key=lambda s: seg_rates.get(s, 0), reverse=True)
     for seg in seg_order:
         log.info(
-            "Segment %-12s  rate=%.3f  slots/batch=%3d  available=%d",
-            seg, seg_rates.get(seg, 0), slots[seg], len(by_segment[seg]),
+            "Segment %-12s  rate=%.3f  available=%d  batch_slots=%d",
+            seg, seg_rates.get(seg, 0), len(by_segment[seg]), slots[seg],
         )
 
-    # Step 6 & 7: Interleave ALL jobs across repeated batches
-    # Each round takes slots[seg] from each segment → maintains mix throughout full ranking.
-    # e.g. if enterprise=80/batch and there are 400 enterprise jobs → 5 rounds of 80.
-    # Jobs 1-200: first round mix, 201-400: second round mix, etc.
-    queue: list[dict] = []
-    pointers = {seg: 0 for seg in seg_order}
-    total_available = sum(len(by_segment[seg]) for seg in seg_order)
+    # Step 6 & 7: Sort each segment by fit_score DESC → embedding_score DESC
+    sorted_segs: dict[str, list] = {}
+    for seg in seg_order:
+        sorted_segs[seg] = sorted(
+            by_segment[seg],
+            key=lambda j: (j["fit_score"], j.get("embedding_score") or 0),
+            reverse=True,
+        )
 
-    while len(queue) < total_available:
-        batch_added = 0
-        for seg in seg_order:
-            pool = by_segment[seg]
-            start = pointers[seg]
-            take = pool[start: start + slots[seg]]
-            if take:
-                queue.extend(take)
-                pointers[seg] += len(take)
-                batch_added += len(take)
-        if batch_added == 0:
+    # Build queue in repeating batches of batch_size.
+    # Each batch computes fresh proportional slots from whatever jobs remain,
+    # cascading unused slots to the next highest response rate segment.
+    queue: list[dict] = []
+    pointers: dict[str, int] = {seg: 0 for seg in seg_order}
+
+    while True:
+        remaining_counts = {seg: len(sorted_segs[seg]) - pointers[seg] for seg in seg_order}
+        total_remaining = sum(remaining_counts.values())
+        if total_remaining == 0:
             break
+
+        # Proportional slots for this batch from remaining jobs
+        w = {seg: seg_rates[seg] * remaining_counts[seg] for seg in seg_order}
+        tw = sum(w.values()) or 1.0
+        batch_slots: dict[str, int] = {}
+        for seg in seg_order:
+            proportion = w[seg] / tw
+            raw = max(1, round(proportion * batch_size)) if remaining_counts[seg] > 0 else 0
+            batch_slots[seg] = min(raw, remaining_counts[seg])
+
+        # Cascade unused slots
+        leftover = min(batch_size, total_remaining) - sum(batch_slots.values())
+        if leftover > 0:
+            for seg in seg_order:
+                if leftover <= 0:
+                    break
+                capacity = remaining_counts[seg] - batch_slots[seg]
+                if capacity > 0:
+                    give = min(leftover, capacity)
+                    batch_slots[seg] += give
+                    leftover -= give
+
+        # Add this batch to queue
+        for seg in seg_order:
+            take = batch_slots[seg]
+            queue.extend(sorted_segs[seg][pointers[seg]: pointers[seg] + take])
+            pointers[seg] += take
 
     # Step 8: Write optimizer_rank to jobs table
     for rank, job in enumerate(queue, start=1):
@@ -195,8 +240,8 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
 
     conn.commit()
     log.info(
-        "Optimization complete: ranked %d jobs across %d segments (%d batches of %d)",
-        len(queue), len(slots), (len(queue) + batch_size - 1) // batch_size, batch_size,
+        "Optimization complete: ranked %d jobs across %d segments (batch_size=%d)",
+        len(queue), len(seg_order), batch_size,
     )
     return queue
 
@@ -208,9 +253,18 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
 def get_allocation_preview(batch_size: int = 200, min_score: int = MIN_SCORE) -> list[dict]:
     """Return allocation plan without modifying the database.
 
-    Returns list of {segment, slots, available, response_rate, bayesian_rate}
+    Returns list of {segment, rank_start, rank_end, available, response_rate}
+    Segments are ordered by Bayesian response rate DESC.
+    Within each segment: fit_score DESC → embedding_score DESC.
     """
     conn = get_connection()
+
+    _TIER_MAP = {
+        "faang": "faang", "tier1": "faang",
+        "enterprise": "enterprise", "tier2": "enterprise",
+        "startup": "startup", "tier3": "startup",
+        "unknown": "unknown",
+    }
 
     segment_data = conn.execute("""
         SELECT
@@ -222,49 +276,39 @@ def get_allocation_preview(batch_size: int = 200, min_score: int = MIN_SCORE) ->
           AND (j.apply_status IS NULL OR j.apply_status NOT IN ('applied', 'Not in US', 'failed', 'manual'))
           AND j.fit_score >= ?
         GROUP BY segment
-        ORDER BY available DESC
     """, (min_score,)).fetchall()
 
     if not segment_data:
         return []
 
+    # Normalize and aggregate
+    from collections import defaultdict
+    agg: dict[str, int] = defaultdict(int)
+    for r in segment_data:
+        seg = _TIER_MAP.get(r["segment"], "unknown")
+        agg[seg] += r["available"]
+
     bayes_rates, global_rate = _compute_bayesian_rates()
     floor = global_rate / GLOBAL_FLOOR_DIVISOR
+    seg_rates = {seg: max(bayes_rates.get(seg, global_rate), floor) for seg in agg}
 
-    rows = [dict(r) for r in segment_data]
-    seg_rates = {r["segment"]: max(bayes_rates.get(r["segment"], global_rate), floor) for r in rows}
-
-    weights = {r["segment"]: seg_rates[r["segment"]] * r["available"] for r in rows}
-    total_weight = sum(weights.values()) or 1.0
-
-    slots: dict[str, int] = {}
-    for r in rows:
-        seg = r["segment"]
-        proportion = weights[seg] / total_weight
-        raw = max(1, round(proportion * batch_size))
-        slots[seg] = min(raw, r["available"])
-
-    # Redistribute excess to highest-rate segments with remaining capacity
-    remaining = batch_size - sum(slots.values())
-    if remaining > 0:
-        for r in sorted(rows, key=lambda x: seg_rates.get(x["segment"], 0), reverse=True):
-            if remaining <= 0:
-                break
-            seg = r["segment"]
-            capacity = r["available"] - slots[seg]
-            if capacity > 0:
-                give = min(remaining, capacity)
-                slots[seg] += give
-                remaining -= give
+    # Sequential fill — mirrors build_apply_queue (highest rate fills first)
+    ordered = sorted(agg, key=lambda s: seg_rates.get(s, 0), reverse=True)
 
     result = []
-    for r in rows:
-        seg = r["segment"]
+    rank = 1
+    remaining = batch_size
+    for seg in ordered:
+        allocated = min(agg[seg], remaining)
+        remaining -= allocated
         result.append({
             "segment": seg,
-            "slots": slots[seg],
-            "available": r["available"],
-            "bayesian_rate": round(seg_rates[seg] * 100, 2),
+            "rank_start": rank,
+            "rank_end": rank + allocated - 1,
+            "available": agg[seg],
+            "allocated": allocated,
+            "response_rate": round(seg_rates[seg] * 100, 2),
         })
+        rank += allocated
 
-    return sorted(result, key=lambda x: x["bayesian_rate"], reverse=True)
+    return result

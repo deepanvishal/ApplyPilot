@@ -32,6 +32,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 _tasks: dict[str, dict] = {}
+_procs: dict[str, Any] = {}  # task_id -> subprocess for kill support
 
 
 async def _run_applypilot(*args: str) -> str:
@@ -58,6 +59,7 @@ async def _run_applypilot(*args: str) -> str:
                 stderr=asyncio.subprocess.STDOUT,
                 env=proc_env,
             )
+            _procs[task_id] = proc
             async for raw in proc.stdout:  # type: ignore[union-attr]
                 line = raw.decode("utf-8", errors="replace").rstrip()
                 _tasks[task_id]["logs"].append(line)
@@ -69,6 +71,7 @@ async def _run_applypilot(*args: str) -> str:
             _tasks[task_id]["status"] = "failed"
         finally:
             _tasks[task_id]["finished_at"] = time.time()
+            _procs.pop(task_id, None)
 
     asyncio.create_task(_execute())
     return task_id
@@ -89,8 +92,20 @@ def _bootstrap() -> None:
 @app.get("/api/stats")
 async def get_stats() -> dict:
     _bootstrap()
-    from applypilot.database import get_stats
-    return get_stats()
+    from applypilot.database import get_stats, get_connection
+    stats = get_stats()
+    # Override ready_to_apply: strict definition — score>=7, not yet applied/in-progress, has URL + tailored resume
+    try:
+        conn = get_connection()
+        ready = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE fit_score >= 7 "
+            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','in_progress')) "
+            "AND application_url IS NOT NULL AND tailored_resume_path IS NOT NULL"
+        ).fetchone()[0]
+        stats['ready_to_apply'] = ready
+    except Exception:
+        pass
+    return stats
 
 
 @app.get("/api/sites")
@@ -157,7 +172,7 @@ async def get_jobs(
         f"SELECT url, title, company, salary, location, site, "
         f"fit_score, score_reasoning, application_url, applied_at, "
         f"apply_status, apply_error, tailored_resume_path, cover_letter_path, "
-        f"discovered_at FROM jobs WHERE {where} "
+        f"discovered_at, embedding_score, optimizer_rank FROM jobs WHERE {where} "
         f"ORDER BY fit_score DESC NULLS LAST, discovered_at DESC LIMIT ? OFFSET ?",
         params + [limit, offset],
     ).fetchall()
@@ -566,6 +581,444 @@ async def stream_task(task_id: str) -> StreamingResponse:
             await asyncio.sleep(0.25)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.post("/api/tasks/{task_id}/kill")
+async def kill_task(task_id: str) -> dict:
+    if task_id not in _tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    proc = _procs.get(task_id)
+    if proc is not None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        _tasks[task_id]["status"] = "failed"
+        _tasks[task_id]["logs"].append("=== Terminated by user ===")
+        _tasks[task_id]["finished_at"] = time.time()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Explore — additional commands
+# ---------------------------------------------------------------------------
+
+class ApifyRequest(BaseModel):
+    days: int = 7
+    workers: int = 5
+    limit: int = 0
+    dry_run: bool = False
+
+
+@app.post("/api/explore/apify")
+async def explore_apify(req: ApifyRequest) -> dict:
+    args = ["exploreapify", "--days", str(req.days), "--workers", str(req.workers)]
+    if req.limit:
+        args += ["--limit", str(req.limit)]
+    if req.dry_run:
+        args.append("--dry-run")
+    return {"task_id": await _run_applypilot(*args)}
+
+
+@app.post("/api/explore/jobspy")
+async def explore_jobspy() -> dict:
+    return {"task_id": await _run_applypilot("run-discover")}
+
+
+@app.post("/api/explore/promote-serper")
+async def promote_serper() -> dict:
+    return {"task_id": await _run_applypilot("promote-serper-jobs")}
+
+
+class PurgeRequest(BaseModel):
+    dry_run: bool = False
+
+
+@app.post("/api/explore/purge-blocked")
+async def purge_blocked(req: PurgeRequest) -> dict:
+    args = ["purge-blocked"]
+    if req.dry_run:
+        args.append("--dry-run")
+    return {"task_id": await _run_applypilot(*args)}
+
+
+@app.post("/api/explore/promote-genie")
+async def promote_genie() -> dict:
+    return {"task_id": await _run_applypilot("promote-genie-jobs")}
+
+
+# ---------------------------------------------------------------------------
+# Pipeline — individual stage commands
+# ---------------------------------------------------------------------------
+
+class ScoreRequest(BaseModel):
+    workers: int = 5
+    limit: int = 0
+
+
+@app.post("/api/pipeline/score")
+async def pipeline_score(req: ScoreRequest) -> dict:
+    args = ["score", "--workers", str(req.workers)]
+    if req.limit:
+        args += ["--limit", str(req.limit)]
+    return {"task_id": await _run_applypilot(*args)}
+
+
+class TailorRequest(BaseModel):
+    min_score: int = 7
+    workers: int = 3
+    validation: str = "normal"
+
+
+@app.post("/api/pipeline/tailor")
+async def pipeline_tailor(req: TailorRequest) -> dict:
+    args = [
+        "tailor",
+        "--min-score", str(req.min_score),
+        "--workers", str(req.workers),
+        "--validation", req.validation,
+    ]
+    return {"task_id": await _run_applypilot(*args)}
+
+
+@app.post("/api/pipeline/allocate")
+async def pipeline_allocate() -> dict:
+    return {"task_id": await _run_applypilot("optimize-queue")}
+
+
+# ---------------------------------------------------------------------------
+# System health
+# ---------------------------------------------------------------------------
+
+@app.get("/api/system/health")
+async def system_health() -> dict:
+    running = [
+        {"id": t["id"], "cmd": t["cmd"], "started_at": t["started_at"]}
+        for t in _tasks.values()
+        if t["status"] == "running"
+    ]
+    result: dict = {
+        "running_tasks": len(running),
+        "tasks": running,
+        "memory_mb": 0,
+        "memory_total_mb": 0,
+        "memory_pct": 0.0,
+        "cpu_pct": 0.0,
+        "gpu_pct": None,
+        "gpu_mem_mb": None,
+    }
+    try:
+        import psutil  # type: ignore
+        vm = psutil.virtual_memory()
+        result["memory_mb"] = vm.used // (1024 * 1024)
+        result["memory_total_mb"] = vm.total // (1024 * 1024)
+        result["memory_pct"] = round(vm.percent, 1)
+        result["cpu_pct"] = round(psutil.cpu_percent(interval=None), 1)
+    except ImportError:
+        pass
+    try:
+        import subprocess as _sp
+        nv = _sp.check_output(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used",
+             "--format=csv,noheader,nounits"],
+            timeout=2,
+        ).decode().strip().split(",")
+        if len(nv) >= 2:
+            result["gpu_pct"] = float(nv[0].strip())
+            result["gpu_mem_mb"] = float(nv[1].strip())
+    except Exception:
+        pass
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Profile
+# ---------------------------------------------------------------------------
+
+@app.get("/api/profile")
+async def get_profile() -> dict:
+    import json as _json
+    from applypilot.config import load_env, PROFILE_PATH
+    load_env()
+    if not PROFILE_PATH.exists():
+        return {}
+    return _json.loads(PROFILE_PATH.read_text())
+
+
+@app.post("/api/profile")
+async def save_profile(body: dict) -> dict:
+    import json as _json
+    from applypilot.config import load_env, PROFILE_PATH
+    load_env()
+    PROFILE_PATH.write_text(_json.dumps(body, indent=2))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Analytics
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analytics/apply-status")
+async def analytics_apply_status() -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT COALESCE(apply_status,'pending') as status, fit_score, COUNT(*) as count "
+        "FROM jobs GROUP BY apply_status, fit_score ORDER BY fit_score DESC"
+    ).fetchall()
+    return {"data": [dict(zip(r.keys(), r)) for r in rows]}
+
+
+@app.get("/api/analytics/embedding")
+async def analytics_embedding(title_filter: str = Query("")) -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    top_titles = [r[0] for r in conn.execute(
+        "SELECT title, COUNT(*) as c FROM jobs WHERE title IS NOT NULL "
+        "GROUP BY title ORDER BY c DESC LIMIT 25"
+    ).fetchall()]
+    where = "WHERE embedding_score IS NOT NULL"
+    params: list = []
+    if title_filter:
+        where += " AND title = ?"
+        params.append(title_filter)
+    rows = conn.execute(f"SELECT embedding_score FROM jobs {where}", params).fetchall()
+    return {"scores": [r[0] for r in rows], "top_titles": top_titles}
+
+
+@app.get("/api/analytics/failures")
+async def analytics_failures() -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT COALESCE(apply_error,'Unknown') as reason, COUNT(*) as count FROM jobs "
+        "WHERE apply_status = 'failed' "
+        "GROUP BY apply_error ORDER BY count DESC LIMIT 15"
+    ).fetchall()
+    total_failed = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE apply_status = 'failed'"
+    ).fetchone()[0]
+    return {"failures": [{"reason": r[0], "count": r[1]} for r in rows], "total": total_failed}
+
+
+@app.get("/api/analytics/allocation")
+async def analytics_allocation() -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    # Exclude companies that have already responded
+    rows = conn.execute(
+        "SELECT j.company, j.title, j.optimizer_rank, j.fit_score, j.embedding_score, "
+        "COALESCE(j.apply_status,'queued') as apply_status "
+        "FROM jobs j "
+        "LEFT JOIN company_signals cs ON LOWER(j.company) = LOWER(cs.company_name) "
+        "WHERE j.optimizer_rank IS NOT NULL AND j.optimizer_rank > 0 "
+        "AND (cs.company_name IS NULL OR cs.responded = 0) "
+        "ORDER BY j.optimizer_rank DESC LIMIT 50"
+    ).fetchall()
+    return {"queue": [dict(zip(r.keys(), r)) for r in rows]}
+
+
+@app.get("/api/analytics/last-run")
+async def analytics_last_run() -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    # Include failed attempts via last_attempted_at (failed jobs may not have applied_at set)
+    _recent = (
+        "(applied_at > datetime('now','-24 hours') "
+        "OR (last_attempted_at > datetime('now','-24 hours') AND apply_status='failed'))"
+    )
+    by_company = conn.execute(
+        f"SELECT COALESCE(company,'Unknown') as company, COUNT(*) as count FROM jobs "
+        f"WHERE {_recent} GROUP BY company ORDER BY count DESC LIMIT 10"
+    ).fetchall()
+    by_title = conn.execute(
+        f"SELECT COALESCE(title,'Unknown') as title, COUNT(*) as count FROM jobs "
+        f"WHERE {_recent} GROUP BY title ORDER BY count DESC LIMIT 10"
+    ).fetchall()
+    failures = conn.execute(
+        "SELECT COALESCE(apply_error,'Unknown') as reason, COUNT(*) as count FROM jobs "
+        "WHERE apply_status='failed' "
+        "AND (last_attempted_at > datetime('now','-24 hours') "
+        "     OR applied_at > datetime('now','-24 hours')) "
+        "GROUP BY apply_error ORDER BY count DESC LIMIT 8"
+    ).fetchall()
+    totals = conn.execute(
+        f"SELECT COUNT(*) as total, "
+        f"SUM(CASE WHEN apply_status='applied' THEN 1 ELSE 0 END) as ok, "
+        f"SUM(CASE WHEN apply_status='failed' THEN 1 ELSE 0 END) as failed "
+        f"FROM jobs WHERE {_recent}"
+    ).fetchone()
+    return {
+        "total": totals[0] or 0,
+        "success": totals[1] or 0,
+        "failed": totals[2] or 0,
+        "by_company": [{"company": r[0], "count": r[1]} for r in by_company],
+        "by_title": [{"title": r[0], "count": r[1]} for r in by_title],
+        "failures": [{"reason": r[0], "count": r[1]} for r in failures],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Optimization mix
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analytics/optimization-mix")
+async def analytics_optimization_mix() -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE optimizer_rank IS NOT NULL AND optimizer_rank > 0"
+    ).fetchone()[0]
+    applied = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE optimizer_rank > 0 AND applied_at IS NOT NULL"
+    ).fetchone()[0]
+    score_dist = conn.execute(
+        "SELECT fit_score, COUNT(*) as count FROM jobs "
+        "WHERE optimizer_rank > 0 AND fit_score IS NOT NULL "
+        "GROUP BY fit_score ORDER BY fit_score DESC"
+    ).fetchall()
+    status_dist = conn.execute(
+        "SELECT COALESCE(apply_status,'queued') as status, COUNT(*) as count "
+        "FROM jobs WHERE optimizer_rank > 0 GROUP BY apply_status"
+    ).fetchall()
+    top_companies = conn.execute(
+        "SELECT company, COUNT(*) as count, ROUND(AVG(fit_score),1) as avg_score "
+        "FROM jobs WHERE optimizer_rank > 0 AND company IS NOT NULL "
+        "GROUP BY company ORDER BY count DESC LIMIT 15"
+    ).fetchall()
+    return {
+        "total": total,
+        "applied": applied,
+        "apply_rate": round(applied / total * 100, 1) if total else 0,
+        "score_distribution": [[r[0], r[1]] for r in score_dist],
+        "status_distribution": [{"status": r[0], "count": r[1]} for r in status_dist],
+        "top_companies": [{"company": r[0], "count": r[1], "avg_score": r[2] or 0} for r in top_companies],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Jobs by segment (Netflix-style)
+# ---------------------------------------------------------------------------
+
+_STRICT_TITLE_SQL = (
+    "(LOWER(title) LIKE '%data scientist%' OR LOWER(title) LIKE '%machine learning%' "
+    "OR LOWER(title) LIKE '%ml engineer%' OR LOWER(title) LIKE '%ai scientist%' "
+    "OR LOWER(title) LIKE '%applied scientist%' OR LOWER(title) LIKE '%research scientist%' "
+    "OR LOWER(title) LIKE '%deep learning%' OR LOWER(title) LIKE '%nlp%' "
+    "OR LOWER(title) LIKE '%recommendation%' OR LOWER(title) LIKE '%computer vision%' "
+    "OR LOWER(title) LIKE '%llm%' OR LOWER(title) LIKE '%generative%')"
+)
+
+
+_FAANG = {
+    "meta", "facebook", "google", "alphabet", "amazon", "apple", "netflix",
+    "microsoft", "openai", "anthropic", "deepmind", "nvidia", "tesla", "spacex",
+    "uber", "airbnb", "linkedin", "twitter", "x corp", "x.com", "stripe",
+    "palantir", "salesforce", "oracle", "adobe", "intel", "amd", "qualcomm",
+    "snap", "pinterest", "lyft", "doordash", "coinbase", "robinhood", "databricks",
+    "snowflake", "confluent", "datadog", "twilio", "zendesk", "workday", "servicenow",
+    "shopify", "square", "block", "zoom", "slack", "dropbox", "atlassian", "github",
+    "gitlab", "figma", "notion", "airtable",
+}
+
+_ENTERPRISE = {
+    "jpmorgan", "jp morgan", "chase", "goldman sachs", "morgan stanley", "citigroup",
+    "citi", "bank of america", "wells fargo", "blackrock", "vanguard", "fidelity",
+    "ibm", "cisco", "dell", "hp", "sap", "vmware", "siemens", "accenture",
+    "deloitte", "mckinsey", "bcg", "bain", "kpmg", "pwc", "ey", "ernst",
+    "boeing", "lockheed", "raytheon", "general dynamics", "northrop",
+    "ge", "general electric", "johnson & johnson", "pfizer", "merck", "abbvie",
+    "unitedhealth", "anthem", "humana", "cvs", "walgreens",
+    "walmart", "target", "costco", "kroger", "home depot", "lowes",
+    "at&t", "verizon", "t-mobile", "comcast", "disney", "warner", "nbc",
+    "ford", "gm", "general motors", "toyota", "honda", "bmw",
+    "paypal", "visa", "mastercard", "american express", "intuit",
+    "experian", "equifax", "transunion", "fiserv", "jack henry",
+}
+
+
+def _classify_company(name: str) -> str:
+    """Classify a company name into a tier label."""
+    if not name:
+        return None
+    nl = name.lower().strip()
+    if any(f in nl for f in _FAANG):
+        return "FAANG & Big Tech"
+    if any(e in nl for e in _ENTERPRISE):
+        return "Enterprise"
+    return None  # caller decides mid/growth
+
+
+@app.get("/api/jobs/by-segment")
+async def jobs_by_segment(
+    min_score: int = Query(7),
+    limit_per: int = Query(30),
+    strict: bool = Query(False),
+) -> dict:
+    _bootstrap()
+    from applypilot.database import get_connection
+    conn = get_connection()
+    strict_clause = f" AND {_STRICT_TITLE_SQL}" if strict else ""
+
+    # Fetch ready-to-apply jobs only (not applied, has application URL)
+    rows = conn.execute(
+        f"SELECT j.url, j.title, j.company, j.fit_score, j.embedding_score, "
+        f"j.salary, j.location, j.site, j.apply_status, j.applied_at, "
+        f"j.application_url, j.optimizer_rank, cs.tier "
+        f"FROM jobs j "
+        f"LEFT JOIN company_signals cs ON LOWER(j.company) = LOWER(cs.company_name) "
+        f"WHERE j.fit_score >= ? AND j.company IS NOT NULL "
+        f"AND j.applied_at IS NULL AND j.apply_status IS NULL "
+        f"AND j.application_url IS NOT NULL{strict_clause} "
+        f"ORDER BY j.fit_score DESC, COALESCE(j.optimizer_rank, 9999) ASC",
+        (min_score,),
+    ).fetchall()
+
+    cols = ["url", "title", "company", "fit_score", "embedding_score", "salary",
+            "location", "site", "apply_status", "applied_at", "application_url",
+            "optimizer_rank"]
+
+    # Bucket jobs into segments
+    buckets: dict[str, list] = {
+        "FAANG & Big Tech": [],
+        "Enterprise": [],
+        "Mid-size & Growth": [],
+        "Other / Unknown": [],
+    }
+
+    _TIER_TO_LABEL = {
+        "faang":      "FAANG & Big Tech",
+        "tier1":      "FAANG & Big Tech",
+        "enterprise": "Enterprise",
+        "tier2":      "Enterprise",
+        "startup":    "Mid-size & Growth",
+        "tier3":      "Mid-size & Growth",
+    }
+
+    for r in rows:
+        job = dict(zip(cols, r[:12]))
+        db_tier = (r[12] or "").lower().strip()
+
+        label = _TIER_TO_LABEL.get(db_tier)
+        if not label:
+            # Fall back to name matching
+            label = _classify_company(job["company"] or "") or "Other / Unknown"
+
+        if len(buckets[label]) < limit_per:
+            buckets[label].append(job)
+
+    segments = [
+        {"label": label, "count": len(jobs), "jobs": jobs}
+        for label, jobs in buckets.items()
+        if jobs
+    ]
+    return {"segments": segments}
 
 
 # ---------------------------------------------------------------------------

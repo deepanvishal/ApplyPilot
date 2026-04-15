@@ -107,11 +107,14 @@ def _store_jobs_filtered(
             filtered += 1
             continue
         try:
+            from applypilot.utils.job_id import extract_job_id
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, "
+                "url_job_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (url, job.get("title"), job.get("salary"), job.get("description"),
-                 job.get("location"), site, strategy, now),
+                 job.get("location"), site, strategy, now,
+                 extract_job_id(url)),
             )
             new += 1
         except sqlite3.IntegrityError:

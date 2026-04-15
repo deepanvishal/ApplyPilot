@@ -88,8 +88,19 @@ def _make_mcp_config(cdp_port: int) -> dict:
 # Database operations
 # ---------------------------------------------------------------------------
 
+_STRICT_KEYWORDS = [
+    "data scientist",
+    "data science",
+    "recommendation",
+    "recommender",
+    "ml scientist",
+    "machine learning scientist",
+    "personalization",
+]
+
+
 def acquire_job(target_url: str | None = None, min_score: int = 7,
-                worker_id: int = 0) -> dict | None:
+                worker_id: int = 0, strict: bool = False) -> dict | None:
     """Atomically acquire the next job to apply to.
 
     Args:
@@ -127,6 +138,12 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
             if blocked_patterns:
                 url_clauses = " ".join(f"AND url NOT LIKE ?" for _ in blocked_patterns)
                 params.extend(blocked_patterns)
+            strict_clause = ""
+            if strict:
+                strict_clause = "AND (" + " OR ".join(
+                    f"LOWER(title) LIKE ?" for _ in _STRICT_KEYWORDS
+                ) + ")"
+                params.extend(f"%{kw}%" for kw in _STRICT_KEYWORDS)
             row = conn.execute(f"""
                 SELECT url, title, site, application_url, tailored_resume_path,
                        fit_score, location, full_description, cover_letter_path
@@ -138,6 +155,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (predicted_expiry IS NULL OR predicted_expiry IN ('active', 'unknown'))
                   {site_clause}
                   {url_clauses}
+                  {strict_clause}
                 ORDER BY
                     CASE WHEN optimizer_rank > 0 THEN optimizer_rank ELSE 999999 END ASC,
                     fit_score DESC,
@@ -647,7 +665,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                 target_url: str | None = None,
                 min_score: int = 7, headless: bool = False,
                 model: str = "haiku", dry_run: bool = False,
-                shared_limit: _SharedLimit | None = None) -> tuple[int, int]:
+                shared_limit: _SharedLimit | None = None,
+                strict: bool = False) -> tuple[int, int]:
     """Run jobs sequentially until limit is reached or queue is empty.
 
     Args:
@@ -687,7 +706,7 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                      last_action="waiting for job", actions=0)
 
         job = acquire_job(target_url=target_url, min_score=min_score,
-                          worker_id=worker_id)
+                          worker_id=worker_id, strict=strict)
         if not job:
             if not continuous:
                 add_event(f"[W{worker_id}] Queue empty")
@@ -791,7 +810,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
 def main(limit: int = 1, target_url: str | None = None,
          min_score: int = 7, headless: bool = False, model: str = "haiku",
          dry_run: bool = False, continuous: bool = False,
-         poll_interval: int = 60, workers: int = 1) -> None:
+         poll_interval: int = 60, workers: int = 1,
+         strict: bool = False) -> None:
     """Launch the apply pipeline.
 
     Args:
@@ -875,6 +895,7 @@ def main(limit: int = 1, target_url: str | None = None,
                     headless=headless,
                     model=model,
                     dry_run=dry_run,
+                    strict=strict,
                 )
             else:
                 # Multi-worker — shared counter so any free worker picks the next job
@@ -893,6 +914,7 @@ def main(limit: int = 1, target_url: str | None = None,
                             model=model,
                             dry_run=dry_run,
                             shared_limit=shared,
+                            strict=strict,
                         ): i
                         for i in range(workers)
                     }

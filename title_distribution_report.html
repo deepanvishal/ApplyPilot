@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ApplyPilot — Title Distribution Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  .header { background: linear-gradient(135deg, #1e3a5f 0%, #1e1b4b 100%); padding: 32px 40px 24px; border-bottom: 1px solid #334155; }
+  .header h1 { font-size: 1.8rem; font-weight: 700; color: #f1f5f9; }
+  .header p { color: #94a3b8; font-size: 0.9rem; margin-top: 6px; }
+  .content { padding: 28px 40px; }
+  .cards { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
+  .card { background: #1e293b; border-radius: 10px; padding: 18px 22px; flex: 1; min-width: 140px; border-top: 4px solid #334155; }
+  .card-value { font-size: 1.4rem; font-weight: 700; }
+  .card-label { font-size: 0.78rem; color: #94a3b8; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid #334155; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  thead th { padding: 10px 14px; color: #fff; font-weight: 600; text-align: right; white-space: nowrap; font-size: 0.8rem; }
+  thead th:first-child { text-align: left; background: #1e293b; }
+  thead th:last-child { background: #334155; }
+  tbody tr.even { background: #1e293b; }
+  tbody tr.odd { background: #172033; }
+  tbody tr:hover { background: #243352; }
+  tbody tr.other-row { background: #1a2234; color: #94a3b8; font-style: italic; border-top: 1px solid #334155; }
+  tbody tr.grand-total { background: #0f172a; font-weight: 700; font-size: 0.9rem; border-top: 2px solid #475569; color: #f1f5f9; }
+  td, th { padding: 8px 14px; }
+  td { text-align: right; }
+  td.title-cell { text-align: left; color: #cbd5e1; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  td.total-cell { font-weight: 600; color: #f1f5f9; }
+  td.zero { color: #334155; }
+  .footer { padding: 16px 40px; color: #475569; font-size: 0.78rem; border-top: 1px solid #1e293b; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>ApplyPilot — Job Title Distribution Report</h1>
+  <p>Jobs with fit score ≥ 7 &nbsp;·&nbsp; Generated 2026-04-13 13:14 &nbsp;·&nbsp; 222 title groups shown (≥5 jobs) of 4,446 total distinct titles</p>
+</div>
+<div class="content">
+  <div class="cards"><div class="card" style="border-top:4px solid #1e40af">
+        <div class="card-value" style="color:#1e40af">9,682</div>
+        <div class="card-label">Total Jobs (score ≥ 7)</div>
+    </div><div class="card" style="border-top:4px solid #16a34a">
+        <div class="card-value" style="color:#16a34a">3,774 (39.0%)</div>
+        <div class="card-label">Applied</div>
+    </div><div class="card" style="border-top:4px solid #b45309">
+        <div class="card-value" style="color:#b45309">4,217 (43.6%)</div>
+        <div class="card-label">Pending</div>
+    </div><div class="card" style="border-top:4px solid #dc2626">
+        <div class="card-value" style="color:#dc2626">1,247 (12.9%)</div>
+        <div class="card-label">Failed</div>
+    </div><div class="card" style="border-top:4px solid #475569">
+        <div class="card-value" style="color:#475569">436 (4.5%)</div>
+        <div class="card-label">Not in US</div>
+    </div><div class="card" style="border-top:4px solid #7c3aed">
+        <div class="card-value" style="color:#7c3aed">4,446</div>
+        <div class="card-label">Distinct Titles</div>
+    </div></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="background:#1e293b;text-align:left">Title</th>
+          <th style="background:#22c55e">applied</th><th style="background:#f59e0b">pending</th><th style="background:#ef4444">failed</th><th style="background:#94a3b8">Not in US</th><th style="background:#6366f1">manual</th><th style="background:#a78bfa">in_progress</th>
+          <th style="background:#334155;text-align:right">TOTAL</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="even"><td class="title-cell">Data Scientist</td><td>203</td><td>175</td><td>88</td><td>23</td><td>1</td><td class="zero">—</td><td class="total-cell">490</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist</td><td>212</td><td>176</td><td>76</td><td>19</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">483</td></tr>
+<tr class="even"><td class="title-cell">Lead Data Scientist</td><td>78</td><td>47</td><td>37</td><td>10</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">172</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Engineer</td><td>52</td><td>89</td><td>15</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">161</td></tr>
+<tr class="even"><td class="title-cell">Senior Machine Learning Engineer</td><td>53</td><td>67</td><td>17</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">138</td></tr>
+<tr class="odd"><td class="title-cell">Staff Data Scientist</td><td>53</td><td>23</td><td>7</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">84</td></tr>
+<tr class="even"><td class="title-cell">Principal Data Scientist</td><td>39</td><td>24</td><td>13</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">80</td></tr>
+<tr class="odd"><td class="title-cell">Sr Data Scientist</td><td>27</td><td>25</td><td>20</td><td>1</td><td class="zero">—</td><td>1</td><td class="total-cell">74</td></tr>
+<tr class="even"><td class="title-cell">Sr. Data Scientist</td><td>36</td><td>19</td><td>11</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">68</td></tr>
+<tr class="odd"><td class="title-cell">Staff Machine Learning Engineer</td><td>34</td><td>27</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">61</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist II</td><td>19</td><td>35</td><td>5</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">60</td></tr>
+<tr class="odd"><td class="title-cell">AI/ML Engineer</td><td>4</td><td>23</td><td>15</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">45</td></tr>
+<tr class="even"><td class="title-cell">Sr Machine Learning Engineer</td><td>22</td><td>9</td><td>12</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">43</td></tr>
+<tr class="odd"><td class="title-cell">Data Science Manager</td><td>15</td><td>20</td><td>5</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">41</td></tr>
+<tr class="even"><td class="title-cell">Principal Machine Learning Engineer</td><td>16</td><td>17</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">38</td></tr>
+<tr class="odd"><td class="title-cell">Associate Director, AI & Advanced Analytics</td><td>3</td><td>29</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">32</td></tr>
+<tr class="even"><td class="title-cell">ML Engineer</td><td class="zero">—</td><td>29</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">31</td></tr>
+<tr class="odd"><td class="title-cell">Senior AI/ML Engineer</td><td>12</td><td>11</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">27</td></tr>
+<tr class="even"><td class="title-cell">Manager, Data Science</td><td>6</td><td>15</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">22</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Analyst</td><td>1</td><td>20</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">22</td></tr>
+<tr class="even"><td class="title-cell">Lead Machine Learning Engineer</td><td>10</td><td>7</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">21</td></tr>
+<tr class="odd"><td class="title-cell">AI Engineer</td><td>3</td><td>13</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">20</td></tr>
+<tr class="even"><td class="title-cell">ConvergeCONSUMER - Data Scientist (Senior Consultant) - Innovation_Delivery_Transformation</td><td>19</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">19</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist, Product Analytics</td><td>17</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">19</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist II</td><td>6</td><td>1</td><td>6</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">19</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist III</td><td>6</td><td>3</td><td class="zero">—</td><td>9</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">18</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist - Product</td><td>4</td><td>14</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">18</td></tr>
+<tr class="odd"><td class="title-cell">Senior Machine Learning Scientist</td><td>9</td><td>5</td><td>1</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">18</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist Senior - Model Development</td><td>9</td><td>4</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">17</td></tr>
+<tr class="odd"><td class="title-cell">EY-Parthenon - Strategy and Execution - Growth Platforms - Data Scientist - Director</td><td>4</td><td>12</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">17</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist I</td><td>2</td><td>11</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">16</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Researcher</td><td>6</td><td>7</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">16</td></tr>
+<tr class="even"><td class="title-cell">Associate Director, Data, Analytics and Insights</td><td class="zero">—</td><td>15</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">15</td></tr>
+<tr class="odd"><td class="title-cell">Director of Data Science (AdTech)</td><td>7</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">15</td></tr>
+<tr class="even"><td class="title-cell">Research Scientist</td><td>10</td><td>2</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">15</td></tr>
+<tr class="odd"><td class="title-cell">Senior Staff Data Scientist</td><td>8</td><td>5</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">15</td></tr>
+<tr class="even"><td class="title-cell">Tech Lead, Data & Inference Engineer</td><td class="zero">—</td><td>15</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">15</td></tr>
+<tr class="odd"><td class="title-cell">AI / Machine Learning Junior / Senior / Lead</td><td>4</td><td>10</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">14</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist - Remote</td><td class="zero">—</td><td>13</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">14</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist Lead - Model Development</td><td>8</td><td>2</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">14</td></tr>
+<tr class="even"><td class="title-cell">Senior AI Engineer</td><td>1</td><td>8</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">14</td></tr>
+<tr class="odd"><td class="title-cell">Senior AI Scientist</td><td>6</td><td>7</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">14</td></tr>
+<tr class="even"><td class="title-cell">Senior Applied Scientist</td><td>7</td><td>2</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">14</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist NLP</td><td class="zero">—</td><td>12</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">13</td></tr>
+<tr class="even"><td class="title-cell">AI/ML Engineer - Remote</td><td>5</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="odd"><td class="title-cell">Associate Director, Medical Data Scientist - Omnichannel</td><td>5</td><td>6</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="even"><td class="title-cell">Associate Director, Medical Omnichannel Data Scientist</td><td>11</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist </td><td>9</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="even"><td class="title-cell">Director, Data Science</td><td>7</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="odd"><td class="title-cell">Lead Data Scientist - Customer Experience</td><td class="zero">—</td><td>12</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="even"><td class="title-cell">Machine Learning Engineer II</td><td>3</td><td>5</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist </td><td>9</td><td>1</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">12</td></tr>
+<tr class="even"><td class="title-cell">Analyst II, Credit Risk Analytics</td><td class="zero">—</td><td>11</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">11</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Engineer II, Logistics AI</td><td class="zero">—</td><td>11</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">11</td></tr>
+<tr class="even"><td class="title-cell">Manager Customer Insights & Data Analytics</td><td class="zero">—</td><td>11</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">11</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist, Marketing</td><td>7</td><td>2</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">11</td></tr>
+<tr class="even"><td class="title-cell">Senior Staff Machine Learning Engineer</td><td>5</td><td>4</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">11</td></tr>
+<tr class="odd"><td class="title-cell">Applied AI Scientist</td><td>5</td><td>3</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist / Senior Data Scientist</td><td>4</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist 3</td><td>4</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist Lead</td><td>5</td><td>2</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="odd"><td class="title-cell">GEN AI Sr Data Scientist/Data Scientist</td><td>7</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="even"><td class="title-cell">Lead Data Scientist - Recommendations</td><td>3</td><td class="zero">—</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="odd"><td class="title-cell">Lead Machine Learning / Data Science Engineer</td><td>4</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist, Advanced Risk Modeling</td><td>6</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">10</td></tr>
+<tr class="odd"><td class="title-cell">AI Scientist</td><td>4</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Associate Director, Media Analytics</td><td class="zero">—</td><td>9</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist (NLP and GenAI Specialist)</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist Manager</td><td>3</td><td>5</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Director, Data Scientist</td><td class="zero">—</td><td>4</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Lead Data Scientist - Autonomous Goal Management</td><td>9</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning / Data Science Engineer</td><td>2</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Machine Learning Engineer III</td><td>2</td><td>3</td><td>2</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Scientist</td><td>7</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist III</td><td>3</td><td>1</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist Medical Analytics, Care Gaps & Customer Segmentation Team</td><td>7</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist, Revenue and Business</td><td>2</td><td>6</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist: Experiments, Metrics & Insights</td><td class="zero">—</td><td>6</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Senior Human Resources Data Scientist</td><td>5</td><td>2</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Senior ML Engineer</td><td>2</td><td>3</td><td>2</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Senior Machine Learning Engineer (Nova)</td><td>1</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="odd"><td class="title-cell">Senior Marketing Data Scientist</td><td>3</td><td>3</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">9</td></tr>
+<tr class="even"><td class="title-cell">Applied AI / ML Engineer</td><td class="zero">—</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Applied Scientist II</td><td>5</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist (Python & SQL) - Freelance AI Trainer</td><td>4</td><td class="zero">—</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist II, Real World Evidence (RWE), Pharma R&D</td><td>4</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist, Product</td><td>6</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist, Risk & Fraud</td><td>4</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Lead Data Scientist – Retail Trading</td><td class="zero">—</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Manager Data Science</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Principal Data and AI Architect</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Principal Machine Learning Data Scientist, Gen AI</td><td>5</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Principal Machine Learning Scientist (US Remote)</td><td>5</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist (NLP and GenAI Specialist)</td><td>7</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist - Growth</td><td class="zero">—</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist, Product Analytics</td><td>5</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Senior Machine Learning Engineer, AI Product and Platform</td><td>3</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Senior Machine Learning Scientist (USA Remote)</td><td>4</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Senior Manager, Data Science</td><td>5</td><td>1</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Sr. Data Analyst</td><td class="zero">—</td><td>8</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Staff AI Scientist</td><td>4</td><td class="zero">—</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">Staff ML Engineer</td><td>2</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="even"><td class="title-cell">Staff Software Engineer, Machine Learning</td><td>2</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">8</td></tr>
+<tr class="odd"><td class="title-cell">AI & GenAI Data Scientist-Senior Associate</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Applied Scientist</td><td>4</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Associate AI & Analytics – Data Scientist-Finance Transformation 2026</td><td class="zero">—</td><td>6</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">EY-Parthenon - Deals - Transaction Analytics - Director (Manager)</td><td class="zero">—</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Founding Senior Machine Learning Engineer</td><td>1</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Head of Machine Learning</td><td>2</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Lead AI Engineer</td><td>2</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Lead Applied Scientist</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Lead Data Analyst</td><td>1</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Machine Learning Scientist III</td><td>4</td><td class="zero">—</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Manager, Data Science, GTM</td><td>3</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Oliver Wyman - Sr. Lead Data Scientist or Principal Data Scientist</td><td>6</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Principal AI Scientist</td><td>5</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Principal Machine Learning Engineer, Ad Marketplace, Level 7</td><td>1</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Principal, Machine Learning Scientist</td><td>5</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Senior Applied Data Scientist</td><td>3</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Science Manager</td><td class="zero">—</td><td>5</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist - Credit</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist - Marketing Analytics</td><td>5</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist, Product & Experimentation</td><td class="zero">—</td><td>7</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">Senior Machine Learning Scientist - Applied Research (USA Remote)</td><td>3</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="even"><td class="title-cell">Staff Applied AI Scientist</td><td>3</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">7</td></tr>
+<tr class="odd"><td class="title-cell">AI Data Engineer - Senior Consultant</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Applied Machine Learning Engineer</td><td>4</td><td>1</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Applied Scientist III</td><td>4</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Associate Applied Data Scientist</td><td class="zero">—</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Associate Data Scientist</td><td>1</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Associate Director, Commercial Data Science</td><td class="zero">—</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Director of Data Science - Slack</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Forward-Deployed Data Scientist</td><td>4</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Founding Machine Learning Engineer</td><td>1</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Lead AI Engineer (AI Foundations, LLM Core and Agentic AI)</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Lead Data Scientist - Safety Alignment</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Lead Data Scientist, Ad Research</td><td>4</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Lead Data Scientist, Content Intelligence</td><td>3</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Machine Learning Engineer, Content and Navigation</td><td>1</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Scientist III - Multi-Product AI</td><td>5</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Principal AI Engineer</td><td>1</td><td>4</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Principal Data Scientist – R&D DSDH - Therapeutics Discovery (TD)</td><td>2</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Principal Machine Learning Engineer, Agentic AI</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Principal Machine Learning Scientist</td><td>3</td><td>1</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Principal Supply Chain Data Scientist</td><td>4</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Scientist, Predictive Biology and AI</td><td class="zero">—</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Senior AI/ML Scientist</td><td>1</td><td>1</td><td>1</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist - GenAI</td><td>5</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist I</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist, Data & Member Behavior</td><td>3</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist, Innovation Lab - Remote</td><td>1</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Senior Graph Data Scientist – Identity Analytics</td><td class="zero">—</td><td>2</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Senior Manager, Data Science & Analytics</td><td>1</td><td>1</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Senior, Data Scientist</td><td>4</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Sr. Applied Scientist</td><td>5</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Sr. Data Scientist - Payments Risk Management Data Analytics</td><td>5</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">Staff Data Scientist, Marketing</td><td>4</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="odd"><td class="title-cell">Staff Machine Learning Engineer, AI Product and Platform</td><td class="zero">—</td><td>6</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">6</td></tr>
+<tr class="even"><td class="title-cell">(USA) Senior, Data Scientist</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">(USA) Staff, Data Scientist</td><td>3</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">AI & GenAI Data Scientist – Senior Manager</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">AI Applied Scientist</td><td>3</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">AI Data Scientist</td><td>1</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Agentic AI Engineer</td><td>1</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Applied AI Data Scientist</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Asst Dir-Data Scientist</td><td>1</td><td>1</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Clinical Data Scientist</td><td>2</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">CrowdStrike GenAI Security Engineer</td><td>2</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Data Analytics Engineer</td><td class="zero">—</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist Associate Manager</td><td>1</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist, Algorithms - Lyft Ads</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist, Algorithms, ML - Fulfillment</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Data Scientist, Decisions - Central Market Management</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Data Scientist, Generative & Agentic AI Solutions</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Director, Analytics & Data Science</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Healthcare Data Scientist</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Lead AI/ML Engineer</td><td>1</td><td>2</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Lead ML Data Engineer, AI Core</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Machine Learning Engineer (Staff & Principal)</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Engineer I</td><td>2</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Machine Learning Engineer, Fraud</td><td>2</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Machine Learning Scientist 5, Production Science</td><td>3</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Manager, Advanced Analytics and Artificial Intelligence (AI)</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Manager, Rx Advertiser Analytics - Ads & Promotions</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Medical Analytics, Care Gaps & Customer Segmentation Team, Senior Data Scientist</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Principal Data Scientist - Agentic AI Discovery & Prototyping</td><td>4</td><td class="zero">—</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Principal ML Engineer</td><td>3</td><td class="zero">—</td><td>1</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Research Data Scientist</td><td>2</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Applied AI Engineer</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Applied ML Scientist</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Engineer</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist - NLP/LLM Specialist</td><td>1</td><td>4</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist - USA Remote</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist, Algorithms - Lyft Business</td><td>3</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist, NLP</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Data Scientist, People Analytics</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Data Scientist, Wharton Graduate Division</td><td>1</td><td>1</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Machine Learning Engineer </td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Machine Learning Engineer (Search)</td><td>2</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Machine Learning Engineer, AdTech</td><td>3</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Machine Learning Platform Engineer</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Machine Learning Scientist - AI - Lab Automation Software</td><td>2</td><td>2</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Machine Learning Scientist, Payments</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Principal Machine Learning Engineer, Foundational Models</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Research Engineer</td><td class="zero">—</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Research Scientist</td><td class="zero">—</td><td>2</td><td>3</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior Scientist, Synthetic Data and Privacy</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Senior Software Engineer, Machine Learning</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Senior/Lead Data Scientist- Pricing Optimization</td><td class="zero">—</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Solutions Analytics Data Scientist</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Sr AI/ML Engineer</td><td>1</td><td>3</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Sr Staff Machine Learning Scientist, Agentic AI</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Sr. Data Scientist - Capacity Data</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Sr. Data Scientist – Finance Analytics, Automation & AI (AAA)</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Sr. Engineer - Intelligence Engineering (AI/ML)</td><td class="zero">—</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Staff AI Scientist - Consumer Risk Fraud (Intuit)</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Staff Applied ML Scientist</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Staff Applied Scientist</td><td>3</td><td class="zero">—</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Staff Credit AI Scientist - Consumer Risk (Intuit)</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Staff Data Engineer</td><td class="zero">—</td><td>5</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="even"><td class="title-cell">Staff Data Scientist, Pricing</td><td>3</td><td>2</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="odd"><td class="title-cell">Tech Lead/Manager, Machine Learning Research Scientist- LLM Evals</td><td>4</td><td>1</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="zero">—</td><td class="total-cell">5</td></tr>
+<tr class="other-row"><td class="title-cell"><em>All other titles (&lt;5 jobs each)</em></td><td>2,203</td><td>2,644</td><td>736</td><td>307</td><td>6</td><td class="zero">—</td><td class="total-cell">5,896</td></tr>
+<tr class="grand-total"><td>GRAND TOTAL</td><td><strong>3,774</strong></td><td><strong>4,217</strong></td><td><strong>1,247</strong></td><td><strong>436</strong></td><td><strong>7</strong></td><td><strong>1</strong></td><td><strong>9,682</strong></td></tr>
+
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="footer">ApplyPilot · 2026-04-13 13:14</div>
+</body>
+</html>

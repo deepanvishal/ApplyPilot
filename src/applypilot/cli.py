@@ -163,6 +163,7 @@ def apply(
     mark_failed: Optional[str] = typer.Option(None, "--mark-failed", help="Manually mark a job URL as failed (provide URL)."),
     fail_reason: Optional[str] = typer.Option(None, "--fail-reason", help="Reason for --mark-failed."),
     reset_failed: bool = typer.Option(False, "--reset-failed", help="Reset all failed jobs for retry."),
+    strict: bool = typer.Option(False, "--strict", help="Only apply to jobs whose title contains a strict ML/DS keyword (data scientist, recommendation, etc.)."),
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
@@ -246,6 +247,7 @@ def apply(
     console.print(f"  Model:    {model}")
     console.print(f"  Headless: {headless}")
     console.print(f"  Dry run:  {dry_run}")
+    console.print(f"  Strict:   {strict}")
     if url:
         console.print(f"  Target:   {url}")
     console.print()
@@ -259,6 +261,7 @@ def apply(
         dry_run=dry_run,
         continuous=continuous,
         workers=workers,
+        strict=strict,
     )
 
 
@@ -732,6 +735,14 @@ def run_genie_command(
         applypilot run-genie --workers 3
     """
     _bootstrap()
+    from applypilot.database import sync_applied_portals
+    sync_result = sync_applied_portals()
+    if sync_result["inserted"] or sync_result["updated"]:
+        console.print(
+            f"[dim]Portal sync: +{sync_result['inserted']} new, "
+            f"{sync_result['updated']} updated[/dim]"
+        )
+
     from applypilot.genie.pipeline import run_genie
     result = run_genie(
         limit=limit,
@@ -915,6 +926,29 @@ def exploreapify(
         console.print("[yellow]DRY RUN — nothing was inserted[/yellow]")
 
 
+@app.command(name="backfill-apify")
+def backfill_apify_command() -> None:
+    """Backfill applyUrl + metadata from all historical Apify datasets.
+
+    Fetches every Apify run dataset ever, updates serper_jobs with:
+    - apply_url (real ATS link from applyUrl field)
+    - standardized_title, industries, job_function
+
+    Then swaps application_url in jobs table where we now have a real ATS URL.
+
+    Examples:
+        applypilot backfill-apify
+    """
+    _bootstrap()
+    from applypilot.apify.pipeline import backfill_apify_datasets
+    console.print("\n[bold cyan]Apify Dataset Backfill[/bold cyan]")
+    result = backfill_apify_datasets()
+    console.print(f"  Runs processed:   {result['runs_processed']}")
+    console.print(f"  Items seen:       {result['items_seen']}")
+    console.print(f"  serper_jobs updated: [green]{result['serper_updated']}[/green]")
+    console.print(f"  jobs URLs swapped:   [green]{result['jobs_swapped']}[/green]\n")
+
+
 @app.command(name="promote-serper-jobs")
 def promote_serper_jobs_command() -> None:
     """Promote all serper_jobs into the jobs table.
@@ -971,6 +1005,26 @@ def sync_outcomes_command(
     console.print(f"  Emails scanned:    [cyan]{result['emails_scanned']}[/cyan]")
     console.print(f"  Outcomes found:    [cyan]{result['outcomes_found']}[/cyan]")
     console.print(f"  Companies updated: [green]{result['companies_updated']}[/green]")
+
+
+@app.command(name="sync-portals")
+def sync_portals_command() -> None:
+    """Sync portals table from successfully applied jobs.
+
+    Extracts ATS portal URLs from applied jobs' application_url and upserts
+    rows in portals — inserting new portals and updating jobs_applied counts.
+
+    Examples:
+        applypilot sync-portals
+    """
+    _bootstrap()
+    from applypilot.database import sync_applied_portals
+    console.print("\n[bold cyan]Portal Sync[/bold cyan]")
+    result = sync_applied_portals()
+    console.print(f"  Inserted: [green]{result['inserted']}[/green] new portals")
+    console.print(f"  Updated:  [cyan]{result['updated']}[/cyan] existing portals")
+    console.print(f"  Skipped:  {result['skipped']} unrecognized URLs")
+    console.print(f"  Total applied jobs scanned: {result['total_applied']}\n")
 
 
 @app.command(name="build-signals")
@@ -1059,16 +1113,18 @@ def optimize_queue_command(
 
     preview_data = get_allocation_preview(batch_size=batch_size, min_score=min_score)
 
-    table = Table(title="Segment Allocation", header_style="bold cyan")
+    table = Table(title=f"Segment Allocation (batch={batch_size})", header_style="bold cyan")
     table.add_column("Segment")
-    table.add_column("Bayesian Rate", justify="right")
+    table.add_column("Response Rate", justify="right")
     table.add_column("Available", justify="right")
-    table.add_column("Slots", justify="right")
+    table.add_column("In Batch", justify="right")
+    table.add_column("Rank Range", justify="right")
 
     for r in preview_data:
-        rate_str = f"{r['bayesian_rate']:.2f}%"
-        rate_fmt = f"[green]{rate_str}[/green]" if r["bayesian_rate"] > 5 else rate_str
-        table.add_row(r["segment"], rate_fmt, str(r["available"]), str(r["slots"]))
+        rate_str = f"{r['response_rate']:.2f}%"
+        rate_fmt = f"[green]{rate_str}[/green]" if r["response_rate"] > 5 else rate_str
+        rank_range = f"{r['rank_start']}–{r['rank_end']}"
+        table.add_row(r["segment"], rate_fmt, str(r["available"]), str(r["allocated"]), rank_range)
 
     console.print(table)
 

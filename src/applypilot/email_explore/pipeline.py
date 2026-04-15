@@ -167,8 +167,8 @@ def _insert_jobs(job_ids: list[str]) -> tuple[int, int]:
             continue
         url = f"https://www.linkedin.com/jobs/view/{job_id}"
         conn.execute(
-            "INSERT OR IGNORE INTO jobs (url, site, discovered_at) VALUES (?, 'linkedin', ?)",
-            (url, now),
+            "INSERT OR IGNORE INTO jobs (url, site, discovered_at, url_job_id) VALUES (?, 'linkedin', ?, ?)",
+            (url, now, f"linkedin:{job_id}"),
         )
         if conn.execute("SELECT changes()").fetchone()[0]:
             inserted += 1

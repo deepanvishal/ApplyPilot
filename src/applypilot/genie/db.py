@@ -100,28 +100,36 @@ def promote_genie_jobs_to_jobs() -> int:
 
     before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
-    conn.execute(f"""
-        INSERT OR IGNORE INTO jobs
-            (url, title, company, location, site, strategy,
-             application_url, full_description, discovered_at)
-        SELECT
-            g.url,
-            g.title,
-            g.company,
-            g.location,
-            g.ats_type,
-            'genie',
-            g.apply_url,
-            g.full_description,
-            COALESCE(g.discovered_at, '{now}')
+    from applypilot.utils.job_id import extract_job_id
+
+    rows = conn.execute("""
+        SELECT g.url, g.title, g.company, g.location, g.ats_type,
+               g.apply_url, g.full_description, g.discovered_at
         FROM genie_jobs g
-        WHERE g.url IS NOT NULL
-          AND g.url != ''
-    """)
+        WHERE g.url IS NOT NULL AND g.url != ''
+    """).fetchall()
+
+    inserted = 0
+    for r in rows:
+        cur = conn.execute("""
+            INSERT OR IGNORE INTO jobs
+                (url, title, company, location, site, strategy,
+                 application_url, full_description, discovered_at,
+                 url_job_id, app_url_job_id)
+            VALUES (?, ?, ?, ?, ?, 'genie', ?, ?, ?, ?, ?)
+        """, (
+            r["url"], r["title"], r["company"], r["location"], r["ats_type"],
+            r["apply_url"], r["full_description"],
+            r["discovered_at"] or now,
+            extract_job_id(r["url"]),
+            extract_job_id(r["apply_url"]),
+        ))
+        if cur.rowcount > 0:
+            inserted += 1
     conn.commit()
 
     after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-    inserted = after - before
+    _ = after  # kept for symmetry; inserted counted above
     log.info("promote_genie_jobs_to_jobs: inserted %d new jobs", inserted)
     return inserted
 

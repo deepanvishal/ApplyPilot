@@ -207,9 +207,17 @@ def run_scoring(limit: int = 0, rescore: bool = False, workers: int = 5) -> dict
     """).fetchall()
     distribution = [(row[0], row[1]) for row in dist]
 
+    # Dedup after scoring — fit_score is now set so we can drop lower-scored
+    # duplicates that share the same url_job_id or app_url_job_id
+    from applypilot.database import dedup_jobs
+    dedup_result = dedup_jobs()
+    log.info("Post-score dedup: %d removed (%d → %d)",
+             dedup_result["removed"], dedup_result["before"], dedup_result["after"])
+
     return {
         "scored": len(results),
         "errors": errors,
         "elapsed": elapsed,
         "distribution": distribution,
+        "dedup_removed": dedup_result["removed"],
     }

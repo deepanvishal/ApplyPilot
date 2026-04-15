@@ -5,11 +5,14 @@ pipeline stage are created up front so any stage can run independently
 without migration ordering issues.
 """
 
+import logging
 import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from applypilot.config import DB_PATH
 
@@ -313,10 +316,16 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         )
     """)
 
-    # Migrate: add source column if missing (existing DBs)
+    # Migrate: add columns to serper_jobs if missing
     existing_cols = [r[1] for r in conn.execute("PRAGMA table_info(serper_jobs)").fetchall()]
-    if "source" not in existing_cols:
-        conn.execute("ALTER TABLE serper_jobs ADD COLUMN source TEXT DEFAULT 'serper'")
+    for col, typedef in [
+        ("source",           "TEXT DEFAULT 'serper'"),
+        ("standardized_title", "TEXT"),
+        ("industries",       "TEXT"),
+        ("job_function",     "TEXT"),
+    ]:
+        if col not in existing_cols:
+            conn.execute(f"ALTER TABLE serper_jobs ADD COLUMN {col} {typedef}")
 
     # Apify resume tracking — records completed title × location combos
     conn.execute("""
@@ -437,6 +446,9 @@ _ALL_COLUMNS: dict[str, str] = {
     # Optimization
     "optimizer_rank": "INTEGER DEFAULT 0",
     "last_optimizer_rank": "INTEGER DEFAULT 0",
+    # ATS deduplication IDs  — format "{ats}:{id}"
+    "url_job_id":     "TEXT",
+    "app_url_job_id": "TEXT",
     # Embedding
     "embedding_score": "REAL DEFAULT 0",
     # Expiry detection
@@ -649,16 +661,20 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
     new = 0
     existing = 0
 
+    from applypilot.utils.job_id import extract_job_id
+
     for job in jobs:
         url = job.get("url")
         if not url:
             continue
         try:
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at, "
+                "url_job_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (url, job.get("title"), job.get("salary"), job.get("description"),
-                 job.get("location"), site, strategy, now),
+                 job.get("location"), site, strategy, now,
+                 extract_job_id(url)),
             )
             new += 1
         except sqlite3.IntegrityError:
@@ -666,6 +682,40 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
 
     conn.commit()
     return new, existing
+
+
+def backfill_job_ids(conn: sqlite3.Connection | None = None) -> int:
+    """Populate url_job_id and app_url_job_id for all existing rows that are missing them.
+
+    Safe to run multiple times — only touches rows where the column is NULL.
+
+    Returns:
+        Number of rows updated.
+    """
+    from applypilot.utils.job_id import extract_job_id
+
+    if conn is None:
+        conn = get_connection()
+
+    rows = conn.execute("""
+        SELECT url, application_url FROM jobs
+        WHERE url_job_id IS NULL OR app_url_job_id IS NULL
+    """).fetchall()
+
+    updated = 0
+    for r in rows:
+        uid = extract_job_id(r["url"])
+        aid = extract_job_id(r["application_url"])
+        if uid is not None or aid is not None:
+            conn.execute(
+                "UPDATE jobs SET url_job_id = COALESCE(url_job_id, ?), "
+                "app_url_job_id = COALESCE(app_url_job_id, ?) WHERE url = ?",
+                (uid, aid, r["url"]),
+            )
+            updated += 1
+
+    conn.commit()
+    return updated
 
 
 def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
@@ -768,15 +818,45 @@ _DEDUP_BY_URL = """
     WHERE rn != 1
 """
 
+_DEDUP_BY_URL_JOB_ID = """
+    SELECT url FROM (
+        SELECT url,
+               ROW_NUMBER() OVER (
+                   PARTITION BY url_job_id
+                   ORDER BY """ + _PRIORITY_ORDER + """
+               ) as rn
+        FROM jobs
+        WHERE url_job_id IS NOT NULL
+    ) ranked
+    WHERE rn != 1
+"""
+
+_DEDUP_BY_APP_JOB_ID = """
+    SELECT url FROM (
+        SELECT url,
+               ROW_NUMBER() OVER (
+                   PARTITION BY app_url_job_id
+                   ORDER BY """ + _PRIORITY_ORDER + """
+               ) as rn
+        FROM jobs
+        WHERE app_url_job_id IS NOT NULL
+    ) ranked
+    WHERE rn != 1
+"""
+
 
 def dedup_jobs() -> dict:
-    """Deduplicate jobs table in two rounds:
+    """Deduplicate jobs table in four rounds:
 
     Round 1 — by application_url: keeps the row with the most pipeline progress.
     Round 2 — by url: handles serper/email jobs that share a LinkedIn URL but
                have no application_url yet.
+    Round 3 — by url_job_id: collapses same job stored under different URL variants
+               (e.g. same LinkedIn numeric ID with different slug/tracking params).
+    Round 4 — by app_url_job_id: collapses same ATS job reached via different
+               portals (e.g. same Workday req ID on two different portal hostnames).
 
-    Applied jobs are never deleted in either round.
+    Applied jobs are never deleted in any round.
 
     Returns:
         Dict with keys: before, after, removed.
@@ -792,7 +872,6 @@ def dedup_jobs() -> dict:
         AND TRIM(application_url) != ''
         AND application_url NOT IN ('None','nan')
         AND normalize_url(application_url) IS NOT NULL
-        AND (apply_status IS NULL OR apply_status != 'applied')
         AND url IN ({_DEDUP_BY_APPLICATION_URL})
     """)
     conn.commit()
@@ -800,11 +879,159 @@ def dedup_jobs() -> dict:
     # Round 2: dedup by url
     conn.execute(f"""
         DELETE FROM jobs
-        WHERE (apply_status IS NULL OR apply_status != 'applied')
-        AND url IN ({_DEDUP_BY_URL})
+        WHERE url IN ({_DEDUP_BY_URL})
+    """)
+    conn.commit()
+
+    # Round 3: dedup by url_job_id (same job, different URL variant)
+    conn.execute(f"""
+        DELETE FROM jobs
+        WHERE url_job_id IS NOT NULL
+        AND url IN ({_DEDUP_BY_URL_JOB_ID})
+    """)
+    conn.commit()
+
+    # Round 4: dedup by app_url_job_id (same ATS job, different portal URL)
+    conn.execute(f"""
+        DELETE FROM jobs
+        WHERE app_url_job_id IS NOT NULL
+        AND url IN ({_DEDUP_BY_APP_JOB_ID})
     """)
     conn.commit()
 
     after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
     removed = before - after
     return {"before": before, "after": after, "removed": removed}
+
+
+def sync_applied_portals() -> dict:
+    """Sync the portals table from successfully applied jobs.
+
+    Extracts the ATS portal URL from each job's application_url and upserts
+    a row in portals — inserting new portals and updating jobs_applied /
+    last_applied_at on existing ones.
+
+    Supported ATS: workday, greenhouse, lever, ashby, bamboohr.
+
+    Returns:
+        {inserted, updated, skipped, total_applied}
+    """
+    from urllib.parse import urlparse
+
+    def _extract_portal(url: str):
+        """Return (ats_type, portal_url, slug) or None."""
+        try:
+            p = urlparse(url.lower())
+        except Exception:
+            return None
+        host = p.netloc
+        path = p.path
+
+        if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
+            slug = host.split(".")[0]
+            return ("workday", f"https://{host}", slug)
+
+        if "greenhouse.io" in host:
+            parts = path.strip("/").split("/")
+            slug = parts[0] if parts else ""
+            if not slug:
+                return None
+            return ("greenhouse", f"https://boards.greenhouse.io/{slug}", slug)
+
+        if "lever.co" in host:
+            parts = path.strip("/").split("/")
+            slug = parts[0] if parts else ""
+            if not slug:
+                return None
+            return ("lever", f"https://jobs.lever.co/{slug}", slug)
+
+        if "ashbyhq.com" in host:
+            parts = path.strip("/").split("/")
+            slug = parts[0] if parts else ""
+            if not slug:
+                return None
+            return ("ashby", f"https://jobs.ashbyhq.com/{slug}", slug)
+
+        if "bamboohr.com" in host:
+            slug = host.split(".")[0]
+            if slug in ("app", "www"):
+                return None
+            return ("bamboohr", f"https://{slug}.bamboohr.com/careers", slug)
+
+        return None
+
+    conn = get_connection()
+
+    applied_rows = conn.execute("""
+        SELECT application_url, company, applied_at
+        FROM jobs
+        WHERE applied_at IS NOT NULL
+        AND application_url IS NOT NULL
+        AND application_url != ''
+        AND application_url NOT IN ('None', 'nan')
+        ORDER BY applied_at DESC
+    """).fetchall()
+
+    total_applied = len(applied_rows)
+    inserted = 0
+    updated = 0
+    skipped = 0
+
+    # Aggregate: portal_url -> {ats_type, slug, company_name, count, latest_at}
+    portal_agg: dict[str, dict] = {}
+    for row in applied_rows:
+        app_url, company, applied_at = row[0], row[1], row[2]
+        parsed = _extract_portal(app_url)
+        if not parsed:
+            skipped += 1
+            continue
+        ats_type, portal_url, slug = parsed
+        if portal_url not in portal_agg:
+            portal_agg[portal_url] = {
+                "ats_type": ats_type,
+                "slug": slug,
+                "company_name": company or slug,
+                "count": 0,
+                "latest_at": None,
+            }
+        portal_agg[portal_url]["count"] += 1
+        if applied_at and (
+            portal_agg[portal_url]["latest_at"] is None
+            or applied_at > portal_agg[portal_url]["latest_at"]
+        ):
+            portal_agg[portal_url]["latest_at"] = applied_at
+
+    for portal_url, agg in portal_agg.items():
+        existing = conn.execute(
+            "SELECT id, jobs_applied FROM portals WHERE portal_url = ?",
+            (portal_url,),
+        ).fetchone()
+
+        if existing:
+            conn.execute("""
+                UPDATE portals
+                SET jobs_applied = ?, last_applied_at = ?
+                WHERE portal_url = ?
+            """, (agg["count"], agg["latest_at"], portal_url))
+            updated += 1
+        else:
+            conn.execute("""
+                INSERT INTO portals
+                    (company_name, portal_url, ats_type, slug, jobs_applied, last_applied_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            """, (
+                agg["company_name"],
+                portal_url,
+                agg["ats_type"],
+                agg["slug"],
+                agg["count"],
+                agg["latest_at"],
+            ))
+            inserted += 1
+
+    conn.commit()
+    log.info(
+        "sync_applied_portals: inserted=%d updated=%d skipped=%d (total applied=%d)",
+        inserted, updated, skipped, total_applied,
+    )
+    return {"inserted": inserted, "updated": updated, "skipped": skipped, "total_applied": total_applied}

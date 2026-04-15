@@ -15,7 +15,6 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 const get = <T>(p: string) => req<T>('GET', p)
 const post = <T>(p: string, b?: unknown) => req<T>('POST', p, b)
-const patch = <T>(p: string, b?: unknown) => req<T>('PATCH', p, b)
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +53,8 @@ export interface Job {
   tailored_resume_path: string | null
   cover_letter_path: string | null
   discovered_at: string | null
+  embedding_score: number | null
+  optimizer_rank: number | null
 }
 
 export interface JobsResponse {
@@ -109,6 +110,51 @@ export interface DoctorResponse {
   tier_label: string
 }
 
+export interface SystemHealth {
+  running_tasks: number
+  tasks: { id: string; cmd: string; started_at: number }[]
+  memory_mb: number
+  memory_total_mb: number
+  memory_pct: number
+  cpu_pct: number
+  gpu_pct: number | null
+  gpu_mem_mb: number | null
+}
+
+export interface AnalyticsApplyStatus {
+  data: { status: string; fit_score: number | null; count: number }[]
+}
+
+export interface AnalyticsEmbedding {
+  scores: number[]
+  top_titles: string[]
+}
+
+export interface AnalyticsFailures {
+  failures: { reason: string; count: number }[]
+  total: number
+}
+
+export interface AnalyticsAllocation {
+  queue: {
+    company: string
+    title: string
+    optimizer_rank: number
+    fit_score: number | null
+    embedding_score: number | null
+    apply_status: string
+  }[]
+}
+
+export interface AnalyticsLastRun {
+  total: number
+  success: number
+  failed: number
+  by_company: { company: string; count: number }[]
+  by_title: { title: string; count: number }[]
+  failures: { reason: string; count: number }[]
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -133,6 +179,9 @@ export const api = {
   pipelineEnrich: (b: object) => post<TaskRef>('/pipeline/enrich', b),
   pipelineEnrichLinkedin: () => post<TaskRef>('/pipeline/enrich-linkedin'),
   pipelinePrioritize: (b: object) => post<TaskRef>('/pipeline/prioritize', b),
+  pipelineScore: (b: object) => post<TaskRef>('/pipeline/score', b),
+  pipelineTailor: (b: object) => post<TaskRef>('/pipeline/tailor', b),
+  pipelineAllocate: () => post<TaskRef>('/pipeline/allocate'),
 
   // Explore
   exploreWorkday: (b: object) => post<TaskRef>('/explore/workday', b),
@@ -141,6 +190,11 @@ export const api = {
   exploreGenie: (b: object) => post<TaskRef>('/explore/genie', b),
   exploreSerper: (b: object) => post<TaskRef>('/explore/serper', b),
   exploreEmail: (b: object) => post<TaskRef>('/explore/email', b),
+  exploreApify: (b: object) => post<TaskRef>('/explore/apify', b),
+  exploreJobspy: () => post<TaskRef>('/explore/jobspy'),
+  promoteSerper: () => post<TaskRef>('/explore/promote-serper'),
+  promoteGenie: () => post<TaskRef>('/explore/promote-genie'),
+  purgeBlocked: (b: object) => post<TaskRef>('/explore/purge-blocked', b),
 
   // Optimize
   optimizeQueue: (b: object) => post<TaskRef>('/optimize/queue', b),
@@ -162,4 +216,22 @@ export const api = {
   tasks: () => get<{ tasks: Omit<Task, 'logs'>[] }>('/tasks'),
   task: (id: string) => get<Task>(`/tasks/${id}`),
   taskStreamUrl: (id: string) => `${BASE}/tasks/${id}/stream`,
+  killTask: (id: string) => post(`/tasks/${id}/kill`),
+
+  // System health
+  systemHealth: () => get<SystemHealth>('/system/health'),
+
+  // Profile
+  getProfile: () => get<Record<string, unknown>>('/profile'),
+  saveProfile: (body: Record<string, unknown>) => post<{ ok: boolean }>('/profile', body),
+
+  // Analytics
+  analyticsApplyStatus: () => get<AnalyticsApplyStatus>('/analytics/apply-status'),
+  analyticsEmbedding: (titleFilter?: string) => {
+    const q = titleFilter ? `?title_filter=${encodeURIComponent(titleFilter)}` : ''
+    return get<AnalyticsEmbedding>(`/analytics/embedding${q}`)
+  },
+  analyticsFailures: () => get<AnalyticsFailures>('/analytics/failures'),
+  analyticsAllocation: () => get<AnalyticsAllocation>('/analytics/allocation'),
+  analyticsLastRun: () => get<AnalyticsLastRun>('/analytics/last-run'),
 }
