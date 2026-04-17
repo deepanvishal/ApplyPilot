@@ -669,12 +669,16 @@ def promote_serper_jobs_to_jobs() -> int:
 # ---------------------------------------------------------------------------
 
 def dedup_serper_jobs() -> dict:
-    """Deduplicate serper_jobs in two rounds.
+    """Deduplicate serper_jobs in three rounds.
 
-    Round 1 — by url: keeps the highest-id row per url (prefers rows with apply_url set).
+    Round 1 — by url: keeps the highest-id row per url.
     Round 2 — by extracted job ID: collapses rows where the same ATS job ID appears
               under different URL variants (e.g. LinkedIn slug vs. bare numeric URL).
               Keeps the row with apply_url set, or highest id as tiebreak.
+    Round 3 — cross-field: collects job IDs from both url and apply_url, groups rows
+              sharing any ID, keeps the best row (prefers has apply_url, then highest id).
+              Catches cases like url=linkedin:X on row A matching apply_url→workday:Y
+              on row B where row C has url→workday:Y.
 
     Returns dict with before/after/removed counts.
     """
@@ -694,30 +698,68 @@ def dedup_serper_jobs() -> dict:
     """)
     conn.commit()
 
-    # Round 2: dedup by extracted job ID — collapse same job under different URLs
+    # Round 2 + 3: dedup by extracted job IDs (cross-field)
+    # Collect ALL job IDs per row from both url and apply_url
     rows = conn.execute("SELECT id, url, apply_url FROM serper_jobs").fetchall()
 
-    # Group by job ID, collecting (id, has_apply_url)
     from collections import defaultdict
-    groups: dict[str, list[tuple[int, bool]]] = defaultdict(list)
+    # job_id -> set of row ids
+    groups: dict[str, set[int]] = defaultdict(set)
+    row_info: dict[int, bool] = {}  # row_id -> has_apply_url
     for r in rows:
-        jid = extract_job_id(r["apply_url"]) or extract_job_id(r["url"])
-        if jid:
-            groups[jid].append((r["id"], bool(r["apply_url"])))
+        rid = r["id"]
+        has_apply = bool(r["apply_url"])
+        row_info[rid] = has_apply
+        url_jid = extract_job_id(r["url"])
+        app_jid = extract_job_id(r["apply_url"])
+        if url_jid:
+            groups[url_jid].add(rid)
+        if app_jid:
+            groups[app_jid].add(rid)
 
-    # Within each group keep one: prefer has_apply_url=True, then highest id
+    # Merge groups that share row ids (union-find)
+    row_to_group: dict[int, int] = {}
+    merged: dict[int, set[int]] = {}
+    for jid, rids in groups.items():
+        # Find existing group for any of these row ids
+        existing = set()
+        for rid in rids:
+            if rid in row_to_group:
+                existing.add(row_to_group[rid])
+        if not existing:
+            # New group — use min row id as group key
+            gid = min(rids)
+            merged[gid] = set(rids)
+            for rid in rids:
+                row_to_group[rid] = gid
+        else:
+            # Merge all existing groups + new rids
+            all_gids = existing
+            all_rids = set(rids)
+            for g in all_gids:
+                all_rids |= merged.pop(g, set())
+            gid = min(all_rids)
+            merged[gid] = all_rids
+            for rid in all_rids:
+                row_to_group[rid] = gid
+
+    # Within each merged group keep one: prefer has_apply_url=True, then highest id
     to_delete: list[int] = []
-    for jid, entries in groups.items():
-        if len(entries) <= 1:
+    for gid, rids in merged.items():
+        if len(rids) <= 1:
             continue
+        entries = [(rid, row_info.get(rid, False)) for rid in rids]
         entries.sort(key=lambda e: (not e[1], -e[0]))  # has_apply first, highest id
         to_delete.extend(e[0] for e in entries[1:])
 
     if to_delete:
-        conn.execute(
-            f"DELETE FROM serper_jobs WHERE id IN ({','.join('?' * len(to_delete))})",
-            to_delete,
-        )
+        # Batch delete in chunks to avoid SQLite variable limit
+        for i in range(0, len(to_delete), 500):
+            chunk = to_delete[i:i+500]
+            conn.execute(
+                f"DELETE FROM serper_jobs WHERE id IN ({','.join('?' * len(chunk))})",
+                chunk,
+            )
         conn.commit()
 
     after = conn.execute("SELECT COUNT(*) FROM serper_jobs").fetchone()[0]

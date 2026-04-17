@@ -17,8 +17,7 @@ COMPANY_BLOCKLIST: list[str] = [
     "%deloitte%",
     "%pwc%",
     "%pricewaterhousecoopers%",
-    "%capital one%",
-    "%capitalone%",
+    "%capital%one%",
     "%ernst young%",
     "%ernst & young%",
     "%meta%",
@@ -27,12 +26,13 @@ COMPANY_BLOCKLIST: list[str] = [
     "%google%",
     "%alphabet%",
     "%deepmind%",
-    "%capital one%",
-    "%capitalone%",
     "%cvs%",
     "%cvs health%",
     "%cvshealth%",
     "%aetna%",
+    "%intuit%",
+    "%open%ai%",
+    "%openai%",
 ]
 
 # Exact case-sensitive matches (compared directly against company column, no lower()).

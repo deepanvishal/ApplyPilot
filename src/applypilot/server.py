@@ -963,20 +963,21 @@ async def jobs_by_segment(
 ) -> dict:
     _bootstrap()
     from applypilot.database import get_connection
+    from applypilot.optimization.allocator import KNOWN_INDUSTRIES, _bucket_industry
     conn = get_connection()
     strict_clause = f" AND {_STRICT_TITLE_SQL}" if strict else ""
 
-    # Fetch ready-to-apply jobs only (not applied, has application URL)
+    # Fetch ready-to-apply jobs grouped by predicted industry
     rows = conn.execute(
         f"SELECT j.url, j.title, j.company, j.fit_score, j.embedding_score, "
         f"j.salary, j.location, j.site, j.apply_status, j.applied_at, "
-        f"j.application_url, j.optimizer_rank, cs.tier "
+        f"j.application_url, j.optimizer_rank, "
+        f"COALESCE(j.predicted_industries, 'other') as industry "
         f"FROM jobs j "
-        f"LEFT JOIN company_signals cs ON LOWER(j.company) = LOWER(cs.company_name) "
         f"WHERE j.fit_score >= ? AND j.company IS NOT NULL "
         f"AND j.applied_at IS NULL AND j.apply_status IS NULL "
         f"AND j.application_url IS NOT NULL{strict_clause} "
-        f"ORDER BY j.fit_score DESC, COALESCE(j.optimizer_rank, 9999) ASC",
+        f"ORDER BY COALESCE(j.optimizer_rank, 9999) ASC, j.fit_score DESC",
         (min_score,),
     ).fetchall()
 
@@ -984,40 +985,23 @@ async def jobs_by_segment(
             "location", "site", "apply_status", "applied_at", "application_url",
             "optimizer_rank"]
 
-    # Bucket jobs into segments
-    buckets: dict[str, list] = {
-        "FAANG & Big Tech": [],
-        "Enterprise": [],
-        "Mid-size & Growth": [],
-        "Other / Unknown": [],
-    }
-
-    _TIER_TO_LABEL = {
-        "faang":      "FAANG & Big Tech",
-        "tier1":      "FAANG & Big Tech",
-        "enterprise": "Enterprise",
-        "tier2":      "Enterprise",
-        "startup":    "Mid-size & Growth",
-        "tier3":      "Mid-size & Growth",
-    }
-
+    # Bucket jobs into industry groups (same 10 buckets as allocator)
+    buckets: dict[str, list] = {}
     for r in rows:
         job = dict(zip(cols, r[:12]))
-        db_tier = (r[12] or "").lower().strip()
+        industry = _bucket_industry(r[12])
+        if industry not in buckets:
+            buckets[industry] = []
+        if len(buckets[industry]) < limit_per:
+            buckets[industry].append(job)
 
-        label = _TIER_TO_LABEL.get(db_tier)
-        if not label:
-            # Fall back to name matching
-            label = _classify_company(job["company"] or "") or "Other / Unknown"
-
-        if len(buckets[label]) < limit_per:
-            buckets[label].append(job)
-
-    segments = [
-        {"label": label, "count": len(jobs), "jobs": jobs}
-        for label, jobs in buckets.items()
-        if jobs
-    ]
+    # Order by number of jobs descending (biggest industries first)
+    segments = sorted(
+        [{"label": label, "count": len(jobs), "jobs": jobs}
+         for label, jobs in buckets.items() if jobs],
+        key=lambda s: s["count"],
+        reverse=True,
+    )
     return {"segments": segments}
 
 

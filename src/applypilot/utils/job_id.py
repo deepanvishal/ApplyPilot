@@ -25,9 +25,9 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("linkedin",        re.compile(r'linkedin\.com/jobs/view/(?:[^/?#]*-)?(\d{6,})')),
 
     # Workday — myworkdayjobs.com  (company.wdN.myworkdayjobs.com/...)
-    ("workday",         re.compile(r'myworkdayjobs\.com/.+?/job/[^/?#]+/[^/?#]*?_([\w-]{6,})(?:/apply)?(?:[?#]|$)')),
+    ("workday",         re.compile(r'myworkdayjobs\.com/.+?/job/(?:[^/?#]+/)?[^/?#]*?_([\w-]{6,})(?:/apply)?(?:[?#]|$)')),
     # Workday — myworkdaysite.com  (wd1.myworkdaysite.com/...)
-    ("workday",         re.compile(r'myworkdaysite\.com/.+?/job/[^/?#]+/[^/?#]*?_([\w-]{6,})(?:/apply)?(?:[?#]|$)')),
+    ("workday",         re.compile(r'myworkdaysite\.com/.+?/job/(?:[^/?#]+/)?[^/?#]*?_([\w-]{6,})(?:/apply)?(?:[?#]|$)')),
 
     # Greenhouse — boards.greenhouse.io or job-boards.greenhouse.io
     ("greenhouse",      re.compile(r'(?:boards|job-boards)\.greenhouse\.io/[^/?#]+/jobs/(\d+)')),

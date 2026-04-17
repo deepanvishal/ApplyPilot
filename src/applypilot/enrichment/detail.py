@@ -940,14 +940,10 @@ def run_enrichment(limit: int = 0, workers: int = 3) -> dict:
         log.info("LinkedIn pre-enrichment done: %d/%d enriched",
                  li_stats["enriched"], li_stats["total"])
 
-    # ATS URL enrichment — visit LinkedIn job pages with logged-in browser
-    # to extract real external apply URLs (or mark as Easy Apply)
-    from applypilot.enrichment.linkedin_enrich import enrich_linkedin_ats_urls
-    ats_stats = enrich_linkedin_ats_urls(workers=min(workers, 5))
-    log.info(
-        "LinkedIn ATS enrichment: enriched=%d easy_apply=%d failed=%d",
-        ats_stats["enriched"], ats_stats["easy_apply"], ats_stats["failed"],
-    )
+    # ATS URL enrichment — replaced by backfill_from_apify() inside dedup_jobs(),
+    # which pulls real ATS apply URLs from the apify_jobs table without Chrome.
+    # The old Chrome-based approach (enrich_linkedin_ats_urls) is kept in
+    # linkedin_enrich.py but no longer called here.
 
     # URL resolution first
     url_stats = resolve_all_urls(conn)

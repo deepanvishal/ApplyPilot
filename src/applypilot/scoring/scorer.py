@@ -19,6 +19,10 @@ from applypilot.llm import get_client
 
 log = logging.getLogger(__name__)
 
+# Suppress noisy httpx/httpcore request logs that drown scoring output
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 # ── Scoring Prompt ────────────────────────────────────────────────────────
 
@@ -193,7 +197,7 @@ def run_scoring(limit: int = 0, rescore: bool = False, workers: int = 5) -> dict
                 conn.commit()
                 log.info(
                     "[%d/%d] score=%d  %s",
-                    completed, len(jobs), result["score"], job.get("title", "?")[:60],
+                    completed, len(jobs), result["score"], (job.get("title") or "?")[:60],
                 )
 
     elapsed = time.time() - t0
@@ -209,15 +213,20 @@ def run_scoring(limit: int = 0, rescore: bool = False, workers: int = 5) -> dict
 
     # Dedup after scoring — fit_score is now set so we can drop lower-scored
     # duplicates that share the same url_job_id or app_url_job_id
-    from applypilot.database import dedup_jobs
-    dedup_result = dedup_jobs()
-    log.info("Post-score dedup: %d removed (%d → %d)",
-             dedup_result["removed"], dedup_result["before"], dedup_result["after"])
+    dedup_removed = 0
+    try:
+        from applypilot.database import dedup_jobs
+        dedup_result = dedup_jobs()
+        dedup_removed = dedup_result["removed"]
+        log.info("Post-score dedup: %d removed (%d → %d)",
+                 dedup_result["removed"], dedup_result["before"], dedup_result["after"])
+    except Exception as e:
+        log.error("Post-score dedup failed (scores are saved): %s", e)
 
     return {
         "scored": len(results),
         "errors": errors,
         "elapsed": elapsed,
         "distribution": distribution,
-        "dedup_removed": dedup_result["removed"],
+        "dedup_removed": dedup_removed,
     }

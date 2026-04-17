@@ -206,9 +206,9 @@ function SegmentView({ minScore, strict }: { minScore: number; strict: boolean }
       .catch(() => setLoading(false))
   }, [minScore, strict])
 
-  if (loading) return <div className="loading-center"><div className="spinner" /> Loading segments…</div>
+  if (loading) return <div className="loading-center"><div className="spinner" /> Loading industries…</div>
   if (segments.length === 0) return (
-    <div className="empty-state">No segments found for these filters.</div>
+    <div className="empty-state">No industries found for these filters.</div>
   )
 
   return (
@@ -277,7 +277,7 @@ export default function Jobs() {
           <button
             className={`view-btn ${viewMode === 'segments' ? 'active' : ''}`}
             onClick={() => setViewMode('segments')}
-          >⊞ Segments</button>
+          >⊞ Industries</button>
         </div>
 
         <span className="filter-label">Score:</span>

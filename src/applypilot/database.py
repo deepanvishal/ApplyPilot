@@ -377,6 +377,37 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         except Exception:
             pass
 
+    # Apify jobs — deduplicated cache of all Apify LinkedIn scraper results
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS apify_jobs (
+            id                      TEXT PRIMARY KEY,
+            title                   TEXT,
+            company_name            TEXT,
+            company_url             TEXT,
+            location                TEXT,
+            country                 TEXT,
+            posted_at               TEXT,
+            expire_at               TEXT,
+            salary                  TEXT,
+            seniority_level         TEXT,
+            employment_type         TEXT,
+            job_function            TEXT,
+            industries              TEXT,
+            standardized_title      TEXT,
+            workplace_types         TEXT,
+            work_remote             INTEGER,
+            applicants_count        INTEGER,
+            apply_url               TEXT,
+            apply_method            TEXT,
+            link                    TEXT,
+            description             TEXT,
+            company_website         TEXT,
+            company_employees_count INTEGER,
+            input_url               TEXT
+        )
+    """)
+    conn.commit()
+
     # Company response signals — one row per company
     conn.execute("""
         CREATE TABLE IF NOT EXISTS company_signals (
@@ -684,6 +715,55 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
     return new, existing
 
 
+def clean_linkedin_urls(conn: sqlite3.Connection | None = None) -> int:
+    """Normalize LinkedIn job URLs to canonical form in both url and application_url.
+
+    Strips slug text and query params, leaving just:
+        https://www.linkedin.com/jobs/view/{numeric_id}
+
+    Safe to run multiple times — already-clean URLs are skipped.
+
+    Returns:
+        Number of rows updated.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    rows = conn.execute("""
+        SELECT url, application_url FROM jobs
+        WHERE url LIKE '%linkedin.com/jobs/view/%'
+           OR application_url LIKE '%linkedin.com/jobs/view/%'
+    """).fetchall()
+
+    updated = 0
+    for r in rows:
+        old_url = r["url"]
+        old_app = r["application_url"]
+        new_url = _clean_linkedin_url(old_url) if old_url and "linkedin.com/jobs/view/" in old_url else old_url
+        new_app = _clean_linkedin_url(old_app) if old_app and "linkedin.com/jobs/view/" in old_app else old_app
+
+        if new_url != old_url or new_app != old_app:
+            conn.execute(
+                "UPDATE jobs SET url = ?, application_url = ? WHERE url = ?",
+                (new_url, new_app, old_url),
+            )
+            updated += 1
+
+    conn.commit()
+    log.info("clean_linkedin_urls: %d rows updated", updated)
+    return updated
+
+
+def _clean_linkedin_url(url: str) -> str:
+    """Return canonical LinkedIn job URL stripping slug and tracking params."""
+    if not url:
+        return url
+    m = re.search(r'linkedin\.com/jobs/view/(?:[^/?#]*-)?(\d{6,})', url)
+    if m:
+        return f"https://www.linkedin.com/jobs/view/{m.group(1)}"
+    return url
+
+
 def backfill_job_ids(conn: sqlite3.Connection | None = None) -> int:
     """Populate url_job_id and app_url_job_id for all existing rows that are missing them.
 
@@ -716,6 +796,64 @@ def backfill_job_ids(conn: sqlite3.Connection | None = None) -> int:
 
     conn.commit()
     return updated
+
+
+def backfill_from_apify(conn: sqlite3.Connection | None = None) -> dict:
+    """Backfill application_url (and app_url_job_id) from the apify_jobs table.
+
+    Targets jobs where application_url is NULL or points to LinkedIn.
+    Matches on LinkedIn job ID: jobs.url_job_id = 'linkedin:{apify_jobs.id}'.
+    Only updates when apify_jobs has a real ATS apply URL (non-LinkedIn).
+
+    Returns:
+        {updated: int, skipped: int}
+    """
+    from applypilot.utils.job_id import extract_job_id
+
+    if conn is None:
+        conn = get_connection()
+
+    # Check if apify_jobs table exists
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='apify_jobs'"
+    ).fetchone()
+    if not exists:
+        log.warning("backfill_from_apify: apify_jobs table does not exist, skipping")
+        return {"updated": 0, "skipped": 0}
+
+    rows = conn.execute("""
+        SELECT j.url, j.url_job_id, a.apply_url
+        FROM jobs j
+        JOIN apify_jobs a ON a.id = SUBSTR(j.url_job_id, 10)
+        WHERE j.url_job_id LIKE 'linkedin:%'
+        AND (j.application_url IS NULL
+             OR TRIM(j.application_url) = ''
+             OR j.application_url LIKE '%linkedin.com%')
+        AND a.apply_url IS NOT NULL
+        AND a.apply_url != ''
+        AND a.apply_url NOT LIKE '%linkedin.com%'
+    """).fetchall()
+
+    updated = 0
+    skipped = 0
+    for r in rows:
+        apply_url = r["apply_url"]
+        # Strip tracking params
+        if "utm_" in apply_url:
+            apply_url = apply_url.split("?")[0]
+        app_url_job_id = extract_job_id(apply_url)
+        conn.execute(
+            "UPDATE jobs SET application_url = ?, app_url_job_id = ? WHERE url = ?",
+            (apply_url, app_url_job_id, r["url"]),
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] > 0:
+            updated += 1
+        else:
+            skipped += 1
+
+    conn.commit()
+    log.info("backfill_from_apify: %d updated, %d skipped", updated, skipped)
+    return {"updated": updated, "skipped": skipped}
 
 
 def get_jobs_by_stage(conn: sqlite3.Connection | None = None,
@@ -844,25 +982,66 @@ _DEDUP_BY_APP_JOB_ID = """
     WHERE rn != 1
 """
 
+_DEDUP_CROSS_JOB_ID = """
+    SELECT url FROM (
+        SELECT url,
+               ROW_NUMBER() OVER (
+                   PARTITION BY job_id
+                   ORDER BY """ + _PRIORITY_ORDER + """
+               ) as rn
+        FROM (
+            SELECT DISTINCT url, job_id,
+                   applied_at, apply_status, tailored_resume_path,
+                   cover_letter_path, fit_score, full_description, discovered_at
+            FROM (
+                SELECT url, url_job_id AS job_id,
+                       applied_at, apply_status, tailored_resume_path,
+                       cover_letter_path, fit_score, full_description, discovered_at
+                FROM jobs WHERE url_job_id IS NOT NULL
+                UNION ALL
+                SELECT url, app_url_job_id AS job_id,
+                       applied_at, apply_status, tailored_resume_path,
+                       cover_letter_path, fit_score, full_description, discovered_at
+                FROM jobs WHERE app_url_job_id IS NOT NULL
+            )
+        )
+    ) ranked
+    WHERE rn != 1
+"""
 
-def dedup_jobs() -> dict:
-    """Deduplicate jobs table in four rounds:
+_DEDUP_CROSS_URL = """
+    SELECT url FROM (
+        SELECT url,
+               ROW_NUMBER() OVER (
+                   PARTITION BY match_url
+                   ORDER BY """ + _PRIORITY_ORDER + """
+               ) as rn
+        FROM (
+            SELECT DISTINCT url, match_url,
+                   applied_at, apply_status, tailored_resume_path,
+                   cover_letter_path, fit_score, full_description, discovered_at
+            FROM (
+                SELECT url, url AS match_url,
+                       applied_at, apply_status, tailored_resume_path,
+                       cover_letter_path, fit_score, full_description, discovered_at
+                FROM jobs
+                UNION ALL
+                SELECT url, application_url AS match_url,
+                       applied_at, apply_status, tailored_resume_path,
+                       cover_letter_path, fit_score, full_description, discovered_at
+                FROM jobs
+                WHERE application_url IS NOT NULL
+                AND TRIM(application_url) != ''
+                AND application_url NOT IN ('None','nan')
+            )
+        )
+    ) ranked
+    WHERE rn != 1
+"""
 
-    Round 1 — by application_url: keeps the row with the most pipeline progress.
-    Round 2 — by url: handles serper/email jobs that share a LinkedIn URL but
-               have no application_url yet.
-    Round 3 — by url_job_id: collapses same job stored under different URL variants
-               (e.g. same LinkedIn numeric ID with different slug/tracking params).
-    Round 4 — by app_url_job_id: collapses same ATS job reached via different
-               portals (e.g. same Workday req ID on two different portal hostnames).
 
-    Applied jobs are never deleted in any round.
-
-    Returns:
-        Dict with keys: before, after, removed.
-    """
-    conn = get_connection()
-
+def _run_dedup_rounds(conn: sqlite3.Connection) -> int:
+    """Run the six dedup rounds. Returns number of rows removed."""
     before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
     # Round 1: dedup by normalized application_url
@@ -899,9 +1078,72 @@ def dedup_jobs() -> dict:
     """)
     conn.commit()
 
+    # Round 5: cross-field dedup (url_job_id matched against app_url_job_id)
+    conn.execute(f"""
+        DELETE FROM jobs
+        WHERE (url_job_id IS NOT NULL OR app_url_job_id IS NOT NULL)
+        AND url IN ({_DEDUP_CROSS_JOB_ID})
+    """)
+    conn.commit()
+
+    # Round 6: cross-field URL dedup (url matched against application_url)
+    conn.execute(f"""
+        DELETE FROM jobs
+        WHERE url IN ({_DEDUP_CROSS_URL})
+    """)
+    conn.commit()
+
     after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-    removed = before - after
-    return {"before": before, "after": after, "removed": removed}
+    return before - after
+
+
+def dedup_jobs() -> dict:
+    """Enrich and deduplicate jobs table in two cycles.
+
+    Cycle 1 — clean + dedup with existing data:
+      1. Clean LinkedIn URLs (strip slugs/query params)
+      2. Backfill job IDs (url_job_id / app_url_job_id)
+      3. Dedup (6 rounds)
+
+    Cycle 2 — enrich from apify_jobs, then clean + dedup again:
+      4. Backfill from apify_jobs (pull real ATS apply URLs)
+      5. Clean LinkedIn URLs (apify may bring dirty URLs)
+      6. Backfill job IDs (new apply URLs need IDs)
+      7. Dedup (6 rounds again — new data creates new matches)
+
+    Applied jobs are never deleted in any round.
+
+    Returns:
+        Dict with keys: before, after, removed, urls_cleaned,
+        apify_backfilled, job_ids_backfilled.
+    """
+    conn = get_connection()
+    before = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+
+    # --- Cycle 1: clean + dedup with existing data ---
+    urls_cleaned_1 = clean_linkedin_urls(conn)
+    job_ids_1 = backfill_job_ids(conn)
+    removed_1 = _run_dedup_rounds(conn)
+    log.info("Cycle 1: urls_cleaned=%d job_ids=%d removed=%d",
+             urls_cleaned_1, job_ids_1, removed_1)
+
+    # --- Cycle 2: enrich from apify, then clean + dedup again ---
+    apify_result = backfill_from_apify(conn)
+    urls_cleaned_2 = clean_linkedin_urls(conn)
+    job_ids_2 = backfill_job_ids(conn)
+    removed_2 = _run_dedup_rounds(conn)
+    log.info("Cycle 2: apify=%d urls_cleaned=%d job_ids=%d removed=%d",
+             apify_result["updated"], urls_cleaned_2, job_ids_2, removed_2)
+
+    after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    return {
+        "before": before,
+        "after": after,
+        "removed": before - after,
+        "urls_cleaned": urls_cleaned_1 + urls_cleaned_2,
+        "apify_backfilled": apify_result["updated"],
+        "job_ids_backfilled": job_ids_1 + job_ids_2,
+    }
 
 
 def sync_applied_portals() -> dict:

@@ -1102,19 +1102,19 @@ def optimize_queue_command(
     _bootstrap()
     from rich.table import Table
     from applypilot.optimization.allocator import get_allocation_preview, build_apply_queue
-    from applypilot.optimization.ml_classify import run_ml_classify_companies
 
     console.print(f"\n[bold cyan]Optimize Queue[/bold cyan]  batch={batch_size}  min_score={min_score}\n")
 
-    # Classify companies first so tier data is fresh before ranking
-    console.print("[dim]Classifying companies (ML)...[/dim]")
-    classify_result = run_ml_classify_companies()
-    console.print(f"  Companies classified: {classify_result['updated']} updated, {classify_result['errors']} errors\n")
+    # Predict industries + job_function per job
+    console.print("[dim]Predicting industries + job_function (multi-task)...[/dim]")
+    from applypilot.optimization.multitask_classify import run_multitask_classify
+    mt_result = run_multitask_classify()
+    console.print(f"  Jobs classified: {mt_result['updated']} updated, {mt_result['errors']} errors\n")
 
     preview_data = get_allocation_preview(batch_size=batch_size, min_score=min_score)
 
-    table = Table(title=f"Segment Allocation (batch={batch_size})", header_style="bold cyan")
-    table.add_column("Segment")
+    table = Table(title=f"Industry Allocation (batch={batch_size})", header_style="bold cyan")
+    table.add_column("Industry")
     table.add_column("Response Rate", justify="right")
     table.add_column("Available", justify="right")
     table.add_column("In Batch", justify="right")
@@ -1124,7 +1124,7 @@ def optimize_queue_command(
         rate_str = f"{r['response_rate']:.2f}%"
         rate_fmt = f"[green]{rate_str}[/green]" if r["response_rate"] > 5 else rate_str
         rank_range = f"{r['rank_start']}–{r['rank_end']}"
-        table.add_row(r["segment"], rate_fmt, str(r["available"]), str(r["allocated"]), rank_range)
+        table.add_row(r["segment"][:55], rate_fmt, str(r["available"]), str(r["allocated"]), rank_range)
 
     console.print(table)
 
@@ -1133,7 +1133,7 @@ def optimize_queue_command(
         console.print(f"\n[green]Queue built: {len(queue)} jobs[/green]")
         console.print("[dim]Top 10:[/dim]")
         for job in queue[:10]:
-            console.print(f"  [{job['segment']:<10}] score={job['fit_score']}  {job['company'][:25]} — {job['title'][:45]}")
+            console.print(f"  [{job['industry'][:30]:<30}] score={job['fit_score']}  {job['company'][:25]} — {job['title'][:40]}")
 
 
 @app.command(name="classify-companies")

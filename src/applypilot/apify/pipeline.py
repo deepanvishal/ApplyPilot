@@ -92,6 +92,73 @@ def _clean_linkedin_url(url: str) -> str:
     return url
 
 
+def _upsert_apify_job(conn, job: dict, lock: threading.Lock) -> None:
+    """Upsert a single Apify job item into the apify_jobs table."""
+    from datetime import datetime, timezone
+
+    job_id = str(job.get("id", ""))
+    if not job_id:
+        return
+
+    apply_url = job.get("applyUrl") or ""
+    apply_method = job.get("applyMethod", "")
+    if isinstance(apply_method, dict):
+        apply_method = apply_method.get("companyApplyUrl", "") or "complex"
+
+    workplace_types = job.get("workplaceTypes")
+    if isinstance(workplace_types, list):
+        workplace_types = ", ".join(str(x) for x in workplace_types)
+
+    job_function = job.get("jobFunction")
+    if isinstance(job_function, list):
+        job_function = ", ".join(str(x) for x in job_function)
+
+    industries = job.get("industries")
+    if isinstance(industries, list):
+        industries = ", ".join(str(x) for x in industries)
+
+    expire_at = job.get("expireAt")
+    if isinstance(expire_at, (int, float)):
+        try:
+            expire_at = datetime.fromtimestamp(expire_at / 1000, tz=timezone.utc).isoformat()
+        except Exception:
+            expire_at = str(expire_at)
+
+    with lock:
+        try:
+            conn.execute("""
+                INSERT INTO apify_jobs (id, title, company_name, company_url, location, country,
+                    posted_at, expire_at, salary, seniority_level, employment_type, job_function,
+                    industries, standardized_title, workplace_types, work_remote, applicants_count,
+                    apply_url, apply_method, link, description, company_website,
+                    company_employees_count, input_url)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                    apply_url = CASE
+                        WHEN excluded.apply_url != '' AND excluded.apply_url NOT LIKE '%linkedin.com%'
+                        THEN excluded.apply_url
+                        ELSE apify_jobs.apply_url
+                    END,
+                    title = COALESCE(excluded.title, apify_jobs.title),
+                    salary = COALESCE(excluded.salary, apify_jobs.salary)
+            """, (
+                job_id, job.get("title", ""), job.get("companyName", ""),
+                job.get("companyLinkedinUrl", ""), job.get("location", ""),
+                job.get("country", ""), job.get("postedAt", ""),
+                expire_at, job.get("salary", ""),
+                job.get("seniorityLevel", ""), job.get("employmentType", ""),
+                job_function, industries, job.get("standardizedTitle", ""),
+                workplace_types, 1 if job.get("workRemoteAllowed") else 0,
+                job.get("applicantsCount"), apply_url, apply_method,
+                job.get("link", ""), (job.get("descriptionText", "") or "")[:5000],
+                job.get("companyWebsite", ""), job.get("companyEmployeesCount"),
+                job.get("inputUrl", ""),
+            ))
+            conn.commit()
+        except Exception as e:
+            log.warning("apify_jobs upsert error for %r: %s", job_id, e)
+
+
 def _run_actor_combo(
     token: str,
     title: str,
@@ -212,6 +279,9 @@ def _run_actor_combo(
             except Exception as e:
                 log.warning("Insert error for %r: %s", job.get("title"), e)
                 skipped += 1
+
+        # Also upsert into apify_jobs table for enrichment/dedup
+        _upsert_apify_job(conn, job, lock)
 
     return {
         "title": title,

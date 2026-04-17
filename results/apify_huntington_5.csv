@@ -1,0 +1,327 @@
+id,title,company_name,company_url,location,country,posted_at,expire_at,salary,seniority_level,employment_type,job_function,industries,standardized_title,workplace_types,work_remote,applicants_count,apply_url,apply_method,link,description,company_website,company_employees_count,input_url
+4398246223,BSA – Senior (Data Analyst),Huntington National Bank,https://www.linkedin.com/company/huntington-national-bank?trk=public_jobs_jserp-result_job-search-card-subtitle,"Detroit, MI",,2026-04-07,,,Mid-Senior level,Full-time,Information Technology,"Banking, Financial Services, and Investment Banking",,,0,92,,,https://www.linkedin.com/jobs/view/bsa-%E2%80%93-senior-data-analyst-at-huntington-national-bank-4398246223?refId=51iAN%2BioQHAv6GDNRxnaLQ%3D%3D&trackingId=HWb1DmrETEHKW59d7EYvyw%3D%3D&position=6&pageNum=0,"Description
+
+This position is available to be filled at any Huntington Corporate office location (see location options on posting)
+
+Job Summary
+
+This position will support the Branch and Contact Center Technology teams. The individual will be responsible for data analysis, project management, incident management and troubleshooting contact center. This individual will also work directly with business partners to ensure their needs are being met and are coordinated with the engaged information technology teams. Knowledge of contact center systems is required. Experience with Genesys is preferred.
+
+Job Duties
+
+
+
+- Analyze and interpret complex data from various sources, including Snowflake for data warehousing and analytics.
+- Perform data engineering tasks, including database queries, data extraction, transformation, and loading (ETL) processes.
+- Create, maintain, &amp; provide reports via Excel and Tableau for multiple managers and segments, pivoting, and presenting the data to tell a business-driven story.
+- Manage inventory database for 1,500+ assets, ensuring accurate records of all hardware and software assets for lifecycle tracking and compliance while bringing observations and insights into automation, reducing manual efforts.
+- Develop and maintain reporting frameworks that operationalize vulnerability management, enhancing visibility and remediation efforts.
+- Perform behavioral analysis on asset usage data, interpret its impact on performance metrics, and deliver tailored insights to both technical and non-technical leaders.
+- Provide operational reporting for service delivery teams on feature implementation, operational, compliance, intake management, and risk management.
+- Collect and analyze call routing metrics that aid in operational and coaching improvements.
+- Review and translate customer complaint insights into actionable recommendations, collaborating with product development, and support teams to improve user experience and operational efficiency.
+- Perform continuous process improvement and analysis in current technical environment.
+- Prepare high level logical data models and business requirement documents that contain essential business elements, detailed definitions, and descriptions of the relationships between stakeholders to analyze and document business data requirements.
+- Help develop logical data models, source data cleansing, and data profiling.
+- Collaborate with cross functional teams to understand business requirements and deliver data driven solutions.
+- Collaborate with Project Managers to estimate reporting, dashboarding, and analytical efforts for resource planning.
+- Ensure data integrity, accuracy, and consistency across all data sources and systems.
+
+
+Basic Qualifications
+
+
+
+- Bachelor's Degree or 4+ additional equivalent years of experience.
+- 4+ years experience with use of technologies including interactive voice response (IVR), call routing, and workforce optimization systems.
+- 4+ years experience working as a Data Analyst, Business Analyst or Developer with experience querying data, analyzing data, reporting findings
+
+
+Preferred Qualifications
+
+
+
+- Familiarity with both IVR caller user interfaces and customer service agent user interfaces for end-to-end customer journey analysis. Genesys contact center experience is preferred.
+- Domain or business knowledge in the fields of financial analysis, macroeconomics, accounting, financial engineering, and banking regulation is preferred.
+- Data analytics certification such as Certified Analytics Professional (CAP), Microsoft Certified Power BI Data Analyst Associate, or AWS Certified Data Engineer is preferred.
+
+
+Exempt Status: (Yes = not eligible for overtime pay) (No = eligible for overtime pay)
+
+Yes
+
+Workplace Type
+
+Office
+
+Our Approach to Office Workplace Type
+
+Certain positions outside our branch network may be eligible for a flexible work arrangement. We’re combining the best of both worlds: in-office and work from home. Our approach enables our teams to deepen connections, maintain a strong community, and do their best work. Remote roles will also have the opportunity to come together in our offices for moments that matter. Specific work arrangements will be provided by the hiring team.
+
+Huntington will not sponsor applicants for this position for immigration benefits, including but not limited to assisting with obtaining work permission for F-1 students, H-1B professionals, O-1 workers, TN workers, E-3 workers, among other immigration statuses. Applicants must be currently authorized to work in the United States on a full-time basis.
+
+Huntington is an Equal Opportunity Employer.
+
+Tobacco-Free Hiring Practice: Visit Huntington's Career Web Site for more details.
+
+Note to Agency Recruiters:  Huntington will not pay a fee for any placement resulting from the receipt of an unsolicited resume. All unsolicited resumes sent to any Huntington colleagues, directly or indirectly, will be considered Huntington property.",,,https://www.linkedin.com/jobs/search?keywords=Lead+Data+Scientist&location=Detroit%2C+MI&f_TPR=r604800&position=1&pageNum=0
+4399442726,Sr. Innovation Software Engineer,Huntington National Bank,https://www.linkedin.com/company/huntington-national-bank?trk=public_jobs_jserp-result_job-search-card-subtitle,"Pittsburgh, PA",,2026-04-08,,,Mid-Senior level,Full-time,Engineering and Information Technology,"Banking, Financial Services, and Investment Banking",,,0,25,,,https://www.linkedin.com/jobs/view/sr-innovation-software-engineer-at-huntington-national-bank-4399442726?refId=pAt9HTYwS4450zad%2BMBewQ%3D%3D&trackingId=%2Fo61A%2B8GwPB%2BmRM0C7LAag%3D%3D&position=9&pageNum=1,"Description
+
+Summary:
+
+Will be responsible for building and delivering innovative applications and automation solutions end-to-end, rapidly translating ideas into working prototypes and reusable assets. This role requires strong hands-on full-stack engineering skills, experience building AI integrated applications end-to-end, developing APIs and user experiences, and the ability to operate independently with limited supervision in a fast-paced innovation environment
+
+This role focuses on high-velocity development of innovation solutions, building applications, APIs, workflow automations, and integrations that demonstrate clear business value. The Senior Innovation Software Engineer will partner closely across the Innovation team to develop end-to-end high-quality prototype applications, implement AI-enabled features, and ensure solutions are well-designed, testable, and ready for broader reuse.
+
+Duties And Responsibilities
+
+
+
+- Lead the development of prototypes and proof-of-concept solutions to validate new ideas and technologies, with emphasis on building working applications end-to-end.
+- Design and implement APIs, backend services, workflow automations, and UI experiences to support innovation use cases.
+- Build AI-enabled application capabilities (e.g., agent workflows, prompt/tooling patterns, evaluation and guardrails) in partnership with AI technical leadership
+- Experiment with, develop, and implement emerging technology solutions (e.g., agent-based workflows, digital assets, etc.) and translate into working solutions.
+- Develop and maintain rapid development patterns for innovation solutions (starter kits, reusable components, internal demos, and implementation playbooks).
+- Integrate solutions with enterprise systems as needed (identity/access, data sources, eventing, internal services), partnering with architecture and platform stakeholders.
+- Evaluate emerging tools and frameworks that improve engineering velocity and quality (AI-assisted development, orchestration frameworks, UI frameworks).
+- Operate with limited supervision, proactively defining tasks, making progress visible, and driving solutions to completion. 
+- Perform other duties as assigned.
+
+
+Basic Qualifications
+
+
+
+- Bachelor’s degree in Computer Science, Information Technology, Engineering or a related technical field.
+- 8 - 12 years of experience in software engineering, application development, and end-to-end innovative solution delivery.
+
+
+Preferred Qualifications
+
+
+
+- Demonstrated hands-on software development experience building full-stack applications end-to-end such as APIs, back-end applications, and UIs.
+- Strong experience building AI-enabled solutions and integrating models/services into applications in a hands-on capacity.
+- Comfort working in a fast-paced environment, progressing despite ambiguity and ability to independently lead development workstreams from concept to execution.
+- Clear, structured verbal and written communication skills; collaborative and proactive working style.
+- Strong full-stack experience (backend apps and building functional UIs quickly).
+- Experience with Google Cloud / Vertex AI / Gemini or comparable AI platforms.
+- Strong hands-on development experience using modern programming. languages and frameworks (e.g., Java, Python, TypeScript/JavaScript, or similar) and/or experience leveraging AI-assisted development tools.
+- Experience with cloud development, containerization, CI/CD, and deploying applications into enterprise environments.
+- Experience building automation solutions (workflow engines, scripting, web automation, system-to-system integration).
+- Experience with secure coding practices, application security basics, and building in regulated environments.
+- Proven track record of delivering innovative solutions using emerging. technologies, with focus on rapid experimentation, implementation, and measurable outcomes.
+
+
+Exempt Status: (Yes = not eligible for overtime pay) (No = eligible for overtime pay)
+
+Yes
+
+Workplace Type
+
+Office
+
+Our Approach to Office Workplace Type
+
+Certain positions outside our branch network may be eligible for a flexible work arrangement. We’re combining the best of both worlds: in-office and work from home. Our approach enables our teams to deepen connections, maintain a strong community, and do their best work. Remote roles will also have the opportunity to come together in our offices for moments that matter. Specific work arrangements will be provided by the hiring team.
+
+Compensation Range
+
+77,000.00 - 154,000.00 USD Annual
+
+The compensation range represents the low and high end of the base compensation range for this position. Actual compensation will vary and may be above or below the range based on various factors including but not limited to location, experience, and performance.  Colleagues in this position are also eligible to participate in an applicable incentive compensation plan.  In addition, Huntington provides a variety of benefits to colle",,,https://www.linkedin.com/jobs/search?keywords=Machine+Learning+Engineer&location=Pittsburgh%2C+PA&f_TPR=r604800&position=1&pageNum=0
+4399443758,Sr. Innovation Software Engineer,Huntington National Bank,https://www.linkedin.com/company/huntington-national-bank?trk=public_jobs_jserp-result_job-search-card-subtitle,"Atlanta, GA",,2026-04-08,,,Not Applicable,Full-time,Engineering and Information Technology,"Banking, Financial Services, and Investment Banking",,,0,25,,,https://www.linkedin.com/jobs/view/sr-innovation-software-engineer-at-huntington-national-bank-4399443758?refId=y4DX6xqXB45sO4vQDtfANA%3D%3D&trackingId=xwKbhpc4ItabRl3LlmqbKA%3D%3D&position=6&pageNum=7,"Description
+
+Summary:
+
+Will be responsible for building and delivering innovative applications and automation solutions end-to-end, rapidly translating ideas into working prototypes and reusable assets. This role requires strong hands-on full-stack engineering skills, experience building AI integrated applications end-to-end, developing APIs and user experiences, and the ability to operate independently with limited supervision in a fast-paced innovation environment
+
+This role focuses on high-velocity development of innovation solutions, building applications, APIs, workflow automations, and integrations that demonstrate clear business value. The Senior Innovation Software Engineer will partner closely across the Innovation team to develop end-to-end high-quality prototype applications, implement AI-enabled features, and ensure solutions are well-designed, testable, and ready for broader reuse.
+
+Duties And Responsibilities
+
+
+
+- Lead the development of prototypes and proof-of-concept solutions to validate new ideas and technologies, with emphasis on building working applications end-to-end.
+- Design and implement APIs, backend services, workflow automations, and UI experiences to support innovation use cases.
+- Build AI-enabled application capabilities (e.g., agent workflows, prompt/tooling patterns, evaluation and guardrails) in partnership with AI technical leadership
+- Experiment with, develop, and implement emerging technology solutions (e.g., agent-based workflows, digital assets, etc.) and translate into working solutions.
+- Develop and maintain rapid development patterns for innovation solutions (starter kits, reusable components, internal demos, and implementation playbooks).
+- Integrate solutions with enterprise systems as needed (identity/access, data sources, eventing, internal services), partnering with architecture and platform stakeholders.
+- Evaluate emerging tools and frameworks that improve engineering velocity and quality (AI-assisted development, orchestration frameworks, UI frameworks).
+- Operate with limited supervision, proactively defining tasks, making progress visible, and driving solutions to completion. 
+- Perform other duties as assigned.
+
+
+Basic Qualifications
+
+
+
+- Bachelor’s degree in Computer Science, Information Technology, Engineering or a related technical field.
+- 8 - 12 years of experience in software engineering, application development, and end-to-end innovative solution delivery.
+
+
+Preferred Qualifications
+
+
+
+- Demonstrated hands-on software development experience building full-stack applications end-to-end such as APIs, back-end applications, and UIs.
+- Strong experience building AI-enabled solutions and integrating models/services into applications in a hands-on capacity.
+- Comfort working in a fast-paced environment, progressing despite ambiguity and ability to independently lead development workstreams from concept to execution.
+- Clear, structured verbal and written communication skills; collaborative and proactive working style.
+- Strong full-stack experience (backend apps and building functional UIs quickly).
+- Experience with Google Cloud / Vertex AI / Gemini or comparable AI platforms.
+- Strong hands-on development experience using modern programming. languages and frameworks (e.g., Java, Python, TypeScript/JavaScript, or similar) and/or experience leveraging AI-assisted development tools.
+- Experience with cloud development, containerization, CI/CD, and deploying applications into enterprise environments.
+- Experience building automation solutions (workflow engines, scripting, web automation, system-to-system integration).
+- Experience with secure coding practices, application security basics, and building in regulated environments.
+- Proven track record of delivering innovative solutions using emerging. technologies, with focus on rapid experimentation, implementation, and measurable outcomes.
+
+
+Exempt Status: (Yes = not eligible for overtime pay) (No = eligible for overtime pay)
+
+Yes
+
+Workplace Type
+
+Office
+
+Our Approach to Office Workplace Type
+
+Certain positions outside our branch network may be eligible for a flexible work arrangement. We’re combining the best of both worlds: in-office and work from home. Our approach enables our teams to deepen connections, maintain a strong community, and do their best work. Remote roles will also have the opportunity to come together in our offices for moments that matter. Specific work arrangements will be provided by the hiring team.
+
+Compensation Range
+
+77,000.00 - 154,000.00 USD Annual
+
+The compensation range represents the low and high end of the base compensation range for this position. Actual compensation will vary and may be above or below the range based on various factors including but not limited to location, experience, and performance.  Colleagues in this position are also eligible to participate in an applicable incentive compensation plan.  In addition, Huntington provides a variety of benefits to colle",,,https://www.linkedin.com/jobs/search?keywords=Machine+Learning+Engineer&location=Atlanta%2C+GA&f_TPR=r604800&position=1&pageNum=0
+4399447638,Sr. Innovation Software Engineer,Huntington National Bank,https://www.linkedin.com/company/huntington-national-bank?trk=public_jobs_jserp-result_job-search-card-subtitle,"Charlotte, NC",,2026-04-08,,,Not Applicable,Full-time,Engineering and Information Technology,"Banking, Financial Services, and Investment Banking",,,0,25,,,https://www.linkedin.com/jobs/view/sr-innovation-software-engineer-at-huntington-national-bank-4399447638?refId=HuCAb05%2FECe6FMSGEq1Xvw%3D%3D&trackingId=cii4atFO99fQry6cIK%2BTDQ%3D%3D&position=3&pageNum=3,"Description
+
+Summary:
+
+Will be responsible for building and delivering innovative applications and automation solutions end-to-end, rapidly translating ideas into working prototypes and reusable assets. This role requires strong hands-on full-stack engineering skills, experience building AI integrated applications end-to-end, developing APIs and user experiences, and the ability to operate independently with limited supervision in a fast-paced innovation environment
+
+This role focuses on high-velocity development of innovation solutions, building applications, APIs, workflow automations, and integrations that demonstrate clear business value. The Senior Innovation Software Engineer will partner closely across the Innovation team to develop end-to-end high-quality prototype applications, implement AI-enabled features, and ensure solutions are well-designed, testable, and ready for broader reuse.
+
+Duties And Responsibilities
+
+
+
+- Lead the development of prototypes and proof-of-concept solutions to validate new ideas and technologies, with emphasis on building working applications end-to-end.
+- Design and implement APIs, backend services, workflow automations, and UI experiences to support innovation use cases.
+- Build AI-enabled application capabilities (e.g., agent workflows, prompt/tooling patterns, evaluation and guardrails) in partnership with AI technical leadership
+- Experiment with, develop, and implement emerging technology solutions (e.g., agent-based workflows, digital assets, etc.) and translate into working solutions.
+- Develop and maintain rapid development patterns for innovation solutions (starter kits, reusable components, internal demos, and implementation playbooks).
+- Integrate solutions with enterprise systems as needed (identity/access, data sources, eventing, internal services), partnering with architecture and platform stakeholders.
+- Evaluate emerging tools and frameworks that improve engineering velocity and quality (AI-assisted development, orchestration frameworks, UI frameworks).
+- Operate with limited supervision, proactively defining tasks, making progress visible, and driving solutions to completion. 
+- Perform other duties as assigned.
+
+
+Basic Qualifications
+
+
+
+- Bachelor’s degree in Computer Science, Information Technology, Engineering or a related technical field.
+- 8 - 12 years of experience in software engineering, application development, and end-to-end innovative solution delivery.
+
+
+Preferred Qualifications
+
+
+
+- Demonstrated hands-on software development experience building full-stack applications end-to-end such as APIs, back-end applications, and UIs.
+- Strong experience building AI-enabled solutions and integrating models/services into applications in a hands-on capacity.
+- Comfort working in a fast-paced environment, progressing despite ambiguity and ability to independently lead development workstreams from concept to execution.
+- Clear, structured verbal and written communication skills; collaborative and proactive working style.
+- Strong full-stack experience (backend apps and building functional UIs quickly).
+- Experience with Google Cloud / Vertex AI / Gemini or comparable AI platforms.
+- Strong hands-on development experience using modern programming. languages and frameworks (e.g., Java, Python, TypeScript/JavaScript, or similar) and/or experience leveraging AI-assisted development tools.
+- Experience with cloud development, containerization, CI/CD, and deploying applications into enterprise environments.
+- Experience building automation solutions (workflow engines, scripting, web automation, system-to-system integration).
+- Experience with secure coding practices, application security basics, and building in regulated environments.
+- Proven track record of delivering innovative solutions using emerging. technologies, with focus on rapid experimentation, implementation, and measurable outcomes.
+
+
+Exempt Status: (Yes = not eligible for overtime pay) (No = eligible for overtime pay)
+
+Yes
+
+Workplace Type
+
+Office
+
+Our Approach to Office Workplace Type
+
+Certain positions outside our branch network may be eligible for a flexible work arrangement. We’re combining the best of both worlds: in-office and work from home. Our approach enables our teams to deepen connections, maintain a strong community, and do their best work. Remote roles will also have the opportunity to come together in our offices for moments that matter. Specific work arrangements will be provided by the hiring team.
+
+Compensation Range
+
+77,000.00 - 154,000.00 USD Annual
+
+The compensation range represents the low and high end of the base compensation range for this position. Actual compensation will vary and may be above or below the range based on various factors including but not limited to location, experience, and performance.  Colleagues in this position are also eligible to participate in an applicable incentive compensation plan.  In addition, Huntington provides a variety of benefits to colle",,,https://www.linkedin.com/jobs/search?keywords=Machine+Learning+Engineer&location=Charlotte%2C+NC&f_TPR=r604800&position=1&pageNum=0
+4399459171,Sr. Innovation Software Engineer,Huntington National Bank,https://www.linkedin.com/company/huntington-national-bank?trk=public_jobs_jserp-result_job-search-card-subtitle,"Houston, TX",,2026-04-08,,,Not Applicable,Full-time,Engineering and Information Technology,"Banking, Financial Services, and Investment Banking",,,0,25,,,https://www.linkedin.com/jobs/view/sr-innovation-software-engineer-at-huntington-national-bank-4399459171?refId=QiBylODwQN769XTQFgXOBQ%3D%3D&trackingId=U0apRbHWI8%2BultRXsSAY5g%3D%3D&position=12&pageNum=2,"Description
+
+Summary:
+
+Will be responsible for building and delivering innovative applications and automation solutions end-to-end, rapidly translating ideas into working prototypes and reusable assets. This role requires strong hands-on full-stack engineering skills, experience building AI integrated applications end-to-end, developing APIs and user experiences, and the ability to operate independently with limited supervision in a fast-paced innovation environment
+
+This role focuses on high-velocity development of innovation solutions, building applications, APIs, workflow automations, and integrations that demonstrate clear business value. The Senior Innovation Software Engineer will partner closely across the Innovation team to develop end-to-end high-quality prototype applications, implement AI-enabled features, and ensure solutions are well-designed, testable, and ready for broader reuse.
+
+Duties And Responsibilities
+
+
+
+- Lead the development of prototypes and proof-of-concept solutions to validate new ideas and technologies, with emphasis on building working applications end-to-end.
+- Design and implement APIs, backend services, workflow automations, and UI experiences to support innovation use cases.
+- Build AI-enabled application capabilities (e.g., agent workflows, prompt/tooling patterns, evaluation and guardrails) in partnership with AI technical leadership
+- Experiment with, develop, and implement emerging technology solutions (e.g., agent-based workflows, digital assets, etc.) and translate into working solutions.
+- Develop and maintain rapid development patterns for innovation solutions (starter kits, reusable components, internal demos, and implementation playbooks).
+- Integrate solutions with enterprise systems as needed (identity/access, data sources, eventing, internal services), partnering with architecture and platform stakeholders.
+- Evaluate emerging tools and frameworks that improve engineering velocity and quality (AI-assisted development, orchestration frameworks, UI frameworks).
+- Operate with limited supervision, proactively defining tasks, making progress visible, and driving solutions to completion. 
+- Perform other duties as assigned.
+
+
+Basic Qualifications
+
+
+
+- Bachelor’s degree in Computer Science, Information Technology, Engineering or a related technical field.
+- 8 - 12 years of experience in software engineering, application development, and end-to-end innovative solution delivery.
+
+
+Preferred Qualifications
+
+
+
+- Demonstrated hands-on software development experience building full-stack applications end-to-end such as APIs, back-end applications, and UIs.
+- Strong experience building AI-enabled solutions and integrating models/services into applications in a hands-on capacity.
+- Comfort working in a fast-paced environment, progressing despite ambiguity and ability to independently lead development workstreams from concept to execution.
+- Clear, structured verbal and written communication skills; collaborative and proactive working style.
+- Strong full-stack experience (backend apps and building functional UIs quickly).
+- Experience with Google Cloud / Vertex AI / Gemini or comparable AI platforms.
+- Strong hands-on development experience using modern programming. languages and frameworks (e.g., Java, Python, TypeScript/JavaScript, or similar) and/or experience leveraging AI-assisted development tools.
+- Experience with cloud development, containerization, CI/CD, and deploying applications into enterprise environments.
+- Experience building automation solutions (workflow engines, scripting, web automation, system-to-system integration).
+- Experience with secure coding practices, application security basics, and building in regulated environments.
+- Proven track record of delivering innovative solutions using emerging. technologies, with focus on rapid experimentation, implementation, and measurable outcomes.
+
+
+Exempt Status: (Yes = not eligible for overtime pay) (No = eligible for overtime pay)
+
+Yes
+
+Workplace Type
+
+Office
+
+Our Approach to Office Workplace Type
+
+Certain positions outside our branch network may be eligible for a flexible work arrangement. We’re combining the best of both worlds: in-office and work from home. Our approach enables our teams to deepen connections, maintain a strong community, and do their best work. Remote roles will also have the opportunity to come together in our offices for moments that matter. Specific work arrangements will be provided by the hiring team.
+
+Compensation Range
+
+77,000.00 - 154,000.00 USD Annual
+
+The compensation range represents the low and high end of the base compensation range for this position. Actual compensation will vary and may be above or below the range based on various factors including but not limited to location, experience, and performance.  Colleagues in this position are also eligible to participate in an applicable incentive compensation plan.  In addition, Huntington provides a variety of benefits to colle",,,https://www.linkedin.com/jobs/search?keywords=Machine+Learning+Engineer&location=Houston%2C+TX&f_TPR=r604800&position=1&pageNum=0
