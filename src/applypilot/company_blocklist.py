@@ -33,6 +33,26 @@ COMPANY_BLOCKLIST: list[str] = [
     "%intuit%",
     "%open%ai%",
     "%openai%",
+    "%roblox%",
+]
+
+# URL patterns — matched against lower(url) and lower(application_url).
+# Catches jobs that slip through company name matching.
+URL_BLOCKLIST: list[str] = [
+    "%capitalone%",
+    "%capital-one%",
+    "%intuit%",
+    "%openai%",
+    "%roblox%",
+    "%walmart%",
+    "%microsoft%",
+    "%amazon%",
+    "%deloitte%",
+    "%meta.com%",
+    "%apple.com%",
+    "%google.com%",
+    "%cvs%",
+    "%whatjobs%",
 ]
 
 # Exact case-sensitive matches (compared directly against company column, no lower()).
@@ -99,6 +119,30 @@ def purge_blocked_companies(dry_run: bool = False) -> dict:
             )
 
         results[f"={exact}"] = {"deleted": to_delete, "kept": kept}
+        total += to_delete
+
+    # URL patterns (case-insensitive via lower(), checked against both url and application_url)
+    for pattern in URL_BLOCKLIST:
+        to_delete = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE (lower(url) LIKE ? OR lower(application_url) LIKE ?) "
+            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+            (pattern, pattern),
+        ).fetchone()[0]
+
+        kept = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE (lower(url) LIKE ? OR lower(application_url) LIKE ?) "
+            "AND apply_status IN ('applied','manual')",
+            (pattern, pattern),
+        ).fetchone()[0]
+
+        if not dry_run and to_delete > 0:
+            conn.execute(
+                "DELETE FROM jobs WHERE (lower(url) LIKE ? OR lower(application_url) LIKE ?) "
+                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+                (pattern, pattern),
+            )
+
+        results[f"url:{pattern}"] = {"deleted": to_delete, "kept": kept}
         total += to_delete
 
     if not dry_run:

@@ -49,6 +49,9 @@ _AGGREGATOR_DOMAINS = {
     "bebee.com", "builtinsf.com", "builtinla.com", "builtinboston.com",
     "builtinnyc.com", "experteer.com", "dice.com", "careerjet.com",
     "simplyhired.com", "snagajob.com", "jooble.org", "talent.com",
+    "whatjobs.com", "jobrapido.com", "lensa.com", "ai-search.io",
+    "jobleads.com", "learn4good.com", "jobright.ai", "tealhq.com",
+    "recruit.net", "jobtarget.com", "career.com",
 }
 
 
@@ -616,8 +619,9 @@ def run_serpapi_jobs(
 # ---------------------------------------------------------------------------
 
 def promote_serper_jobs_to_jobs() -> int:
-    """Copy all serper_jobs records into the jobs table (INSERT OR IGNORE).
+    """Copy recently discovered serper_jobs into the jobs table (INSERT OR IGNORE).
 
+    Only promotes jobs from the most recent run (discovered_at > last promotion).
     Uses apply_url as application_url when available, falling back to url.
     Sets strategy='serpapi' and site from ats_type.
 
@@ -629,13 +633,21 @@ def promote_serper_jobs_to_jobs() -> int:
 
     from applypilot.utils.job_id import extract_job_id
 
+    # Watermark: track last promoted serper_jobs.id in a metadata table
+    conn.execute("CREATE TABLE IF NOT EXISTS _promote_watermarks (source TEXT PRIMARY KEY, last_id INTEGER DEFAULT 0)")
+    last_id = conn.execute("SELECT last_id FROM _promote_watermarks WHERE source = 'serper'").fetchone()
+    last_id = last_id[0] if last_id else 0
+
     rows = conn.execute("""
-        SELECT sj.url, sj.apply_url, sj.title, sj.company, sj.location,
+        SELECT sj.id, sj.url, sj.apply_url, sj.title, sj.company, sj.location,
                sj.ats_type, sj.full_description, sj.discovered_at
         FROM serper_jobs sj
-        WHERE COALESCE(NULLIF(sj.apply_url, ''), sj.url) IS NOT NULL
+        WHERE sj.id > ?
+          AND COALESCE(NULLIF(sj.apply_url, ''), sj.url) IS NOT NULL
           AND COALESCE(NULLIF(sj.apply_url, ''), sj.url) != ''
-    """).fetchall()
+        ORDER BY sj.id
+    """, (last_id,)).fetchall()
+    log.info("promote_serper: incremental since id=%d (%d new candidates)", last_id, len(rows))
 
     inserted = 0
     for r in rows:
@@ -658,9 +670,17 @@ def promote_serper_jobs_to_jobs() -> int:
         ))
         if cur.rowcount > 0:
             inserted += 1
+
+    # Update watermark to the max id we processed
+    if rows:
+        max_id = max(r["id"] for r in rows)
+        conn.execute("""
+            INSERT INTO _promote_watermarks (source, last_id) VALUES ('serper', ?)
+            ON CONFLICT(source) DO UPDATE SET last_id = excluded.last_id
+        """, (max_id,))
     conn.commit()
 
-    log.info("promote_serper_jobs_to_jobs: inserted %d new jobs", inserted)
+    log.info("promote_serper_jobs_to_jobs: inserted %d new jobs (watermark=%d)", inserted, max_id if rows else last_id)
     return inserted
 
 

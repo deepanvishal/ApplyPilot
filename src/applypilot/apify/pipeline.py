@@ -31,7 +31,8 @@ _AGGREGATOR_DOMAINS = {
     "builtinnyc.com", "dice.com", "careerjet.com", "simplyhired.com",
     "snagajob.com", "jooble.org", "talent.com", "jobleads.com",
     "learn4good.com", "jobright.ai", "tealhq.com", "recruit.net",
-    "jobtarget.com", "career.com",
+    "jobtarget.com", "career.com", "whatjobs.com", "jobrapido.com",
+    "lensa.com", "ai-search.io", "experteer.com",
 }
 
 

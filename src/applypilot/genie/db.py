@@ -88,9 +88,9 @@ def dedup_portals() -> int:
 
 
 def promote_genie_jobs_to_jobs() -> int:
-    """INSERT OR IGNORE new genie_jobs into the jobs table.
+    """INSERT OR IGNORE recently discovered genie_jobs into the jobs table.
 
-    Only inserts jobs whose URL is not already in jobs.
+    Only promotes jobs from the most recent run (discovered_at > last promotion).
     Maps genie_jobs columns to jobs columns.
 
     Returns number of jobs inserted.
@@ -102,12 +102,20 @@ def promote_genie_jobs_to_jobs() -> int:
 
     from applypilot.utils.job_id import extract_job_id
 
+    # Watermark: track last promoted genie_jobs.id
+    conn.execute("CREATE TABLE IF NOT EXISTS _promote_watermarks (source TEXT PRIMARY KEY, last_id INTEGER DEFAULT 0)")
+    last_id = conn.execute("SELECT last_id FROM _promote_watermarks WHERE source = 'genie'").fetchone()
+    last_id = last_id[0] if last_id else 0
+
     rows = conn.execute("""
-        SELECT g.url, g.title, g.company, g.location, g.ats_type,
+        SELECT g.id, g.url, g.title, g.company, g.location, g.ats_type,
                g.apply_url, g.full_description, g.discovered_at
         FROM genie_jobs g
-        WHERE g.url IS NOT NULL AND g.url != ''
-    """).fetchall()
+        WHERE g.id > ?
+          AND g.url IS NOT NULL AND g.url != ''
+        ORDER BY g.id
+    """, (last_id,)).fetchall()
+    log.info("promote_genie: incremental since id=%d (%d new candidates)", last_id, len(rows))
 
     inserted = 0
     for r in rows:
@@ -126,10 +134,15 @@ def promote_genie_jobs_to_jobs() -> int:
         ))
         if cur.rowcount > 0:
             inserted += 1
-    conn.commit()
 
-    after = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-    _ = after  # kept for symmetry; inserted counted above
+    # Update watermark to the max id we processed
+    if rows:
+        max_id = max(r["id"] for r in rows)
+        conn.execute("""
+            INSERT INTO _promote_watermarks (source, last_id) VALUES ('genie', ?)
+            ON CONFLICT(source) DO UPDATE SET last_id = excluded.last_id
+        """, (max_id,))
+    conn.commit()
     log.info("promote_genie_jobs_to_jobs: inserted %d new jobs", inserted)
     return inserted
 
