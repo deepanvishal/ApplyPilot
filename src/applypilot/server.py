@@ -99,7 +99,7 @@ async def get_stats() -> dict:
         conn = get_connection()
         ready = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE fit_score >= 7 "
-            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','in_progress')) "
+            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','in_progress'))"
             "AND application_url IS NOT NULL AND tailored_resume_path IS NOT NULL"
         ).fetchone()[0]
         stats['ready_to_apply'] = ready

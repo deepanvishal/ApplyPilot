@@ -17,6 +17,7 @@ blocked:
     - "accenture"
     - "AccentureCareers"
     - "Workopolis"
+    - "netflix"
   url_patterns:
     - "%amazon.jobs%"
     - "%glassdoor%"
@@ -28,6 +29,7 @@ blocked:
     - "%jobleads.com%"
     - "%jobs.stevenagefc.com%"
     - "%capgemini%"
+    - "%netflix%"
 
 # ── Blocked SSO domains — cannot authenticate through these ──────────────
 blocked_sso:

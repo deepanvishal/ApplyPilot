@@ -470,6 +470,8 @@ _ALL_COLUMNS: dict[str, str] = {
     "last_attempted_at": "TEXT",
     "apply_duration_ms": "INTEGER",
     "apply_task_id": "TEXT",
+    "apply_turns": "INTEGER",
+    "apply_cost_usd": "REAL",
     "verification_confidence": "TEXT",
     # Outcome tracking
     "outcome": "TEXT",

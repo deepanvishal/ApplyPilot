@@ -156,7 +156,7 @@ def build_apply_queue(batch_size: int = 200, min_score: int = MIN_SCORE) -> list
             COALESCE(j.predicted_industries, 'other') as raw_industry
         FROM jobs j
         WHERE j.applied_at IS NULL
-          AND (j.apply_status IS NULL OR j.apply_status NOT IN ('applied', 'Not in US', 'failed', 'manual'))
+          AND (j.apply_status IS NULL OR j.apply_status NOT IN ('applied', 'already_applied', 'Not in US', 'failed', 'manual'))
           AND j.fit_score >= ?
         ORDER BY j.fit_score DESC, COALESCE(j.embedding_score, 0) DESC
     """, (min_score,)).fetchall()
@@ -269,7 +269,7 @@ def get_allocation_preview(batch_size: int = 200, min_score: int = MIN_SCORE) ->
             COUNT(*) as available
         FROM jobs
         WHERE applied_at IS NULL
-          AND (apply_status IS NULL OR apply_status NOT IN ('applied', 'Not in US', 'failed', 'manual'))
+          AND (apply_status IS NULL OR apply_status NOT IN ('applied', 'already_applied', 'Not in US', 'failed', 'manual'))
           AND fit_score >= ?
         GROUP BY raw_industry
     """, (min_score,)).fetchall()

@@ -157,7 +157,7 @@ def enrich_greenhouse_jobs(dry_run: bool = False, limit: int = 0) -> dict:
         apply_status = row["apply_status"] or ""
         title = row["title"] or url
 
-        if apply_status == "applied":
+        if apply_status in ("applied", "already_applied"):
             skipped_applied += 1
             continue
 

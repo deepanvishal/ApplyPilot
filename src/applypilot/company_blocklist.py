@@ -77,20 +77,20 @@ def purge_blocked_companies(dry_run: bool = False) -> dict:
     for pattern in COMPANY_BLOCKLIST:
         to_delete = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE lower(company) LIKE ? "
-            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','manual'))",
             (pattern,),
         ).fetchone()[0]
 
         kept = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE lower(company) LIKE ? "
-            "AND apply_status IN ('applied','manual')",
+            "AND apply_status IN ('applied','already_applied','manual')",
             (pattern,),
         ).fetchone()[0]
 
         if not dry_run and to_delete > 0:
             conn.execute(
                 "DELETE FROM jobs WHERE lower(company) LIKE ? "
-                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','manual'))",
                 (pattern,),
             )
 
@@ -101,20 +101,20 @@ def purge_blocked_companies(dry_run: bool = False) -> dict:
     for exact in COMPANY_BLOCKLIST_EXACT:
         to_delete = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE company = ? "
-            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','manual'))",
             (exact,),
         ).fetchone()[0]
 
         kept = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE company = ? "
-            "AND apply_status IN ('applied','manual')",
+            "AND apply_status IN ('applied','already_applied','manual')",
             (exact,),
         ).fetchone()[0]
 
         if not dry_run and to_delete > 0:
             conn.execute(
                 "DELETE FROM jobs WHERE company = ? "
-                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','manual'))",
                 (exact,),
             )
 
@@ -125,20 +125,20 @@ def purge_blocked_companies(dry_run: bool = False) -> dict:
     for pattern in URL_BLOCKLIST:
         to_delete = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE (lower(url) LIKE ? OR lower(application_url) LIKE ?) "
-            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+            "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','manual'))",
             (pattern, pattern),
         ).fetchone()[0]
 
         kept = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE (lower(url) LIKE ? OR lower(application_url) LIKE ?) "
-            "AND apply_status IN ('applied','manual')",
+            "AND apply_status IN ('applied','already_applied','manual')",
             (pattern, pattern),
         ).fetchone()[0]
 
         if not dry_run and to_delete > 0:
             conn.execute(
                 "DELETE FROM jobs WHERE (lower(url) LIKE ? OR lower(application_url) LIKE ?) "
-                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','manual'))",
+                "AND (apply_status IS NULL OR apply_status NOT IN ('applied','already_applied','manual'))",
                 (pattern, pattern),
             )
 

@@ -198,7 +198,9 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
 def mark_result(url: str, status: str, error: str | None = None,
                 permanent: bool = False, duration_ms: int | None = None,
                 task_id: str | None = None,
-                application_url: str | None = None) -> None:
+                application_url: str | None = None,
+                turns: int | None = None,
+                cost_usd: float | None = None) -> None:
     """Update a job's apply status in the database."""
     conn = get_connection()
     now = datetime.now(timezone.utc).isoformat()
@@ -208,16 +210,17 @@ def mark_result(url: str, status: str, error: str | None = None,
                 UPDATE jobs SET apply_status = 'applied', applied_at = ?,
                                apply_error = NULL, agent_id = NULL,
                                apply_duration_ms = ?, apply_task_id = ?,
-                               application_url = ?
+                               application_url = ?, apply_turns = ?, apply_cost_usd = ?
                 WHERE url = ?
-            """, (now, duration_ms, task_id, application_url, url))
+            """, (now, duration_ms, task_id, application_url, turns, cost_usd, url))
         else:
             conn.execute("""
                 UPDATE jobs SET apply_status = 'applied', applied_at = ?,
                                apply_error = NULL, agent_id = NULL,
-                               apply_duration_ms = ?, apply_task_id = ?
+                               apply_duration_ms = ?, apply_task_id = ?,
+                               apply_turns = ?, apply_cost_usd = ?
                 WHERE url = ?
-            """, (now, duration_ms, task_id, url))
+            """, (now, duration_ms, task_id, turns, cost_usd, url))
     else:
         # Transient infrastructure failures: reset to NULL so the job is re-queued
         # without counting against apply_attempts.
@@ -226,17 +229,19 @@ def mark_result(url: str, status: str, error: str | None = None,
             conn.execute("""
                 UPDATE jobs SET apply_status = NULL, apply_error = ?,
                                agent_id = NULL,
-                               apply_duration_ms = ?, apply_task_id = ?
+                               apply_duration_ms = ?, apply_task_id = ?,
+                               apply_turns = ?, apply_cost_usd = ?
                 WHERE url = ?
-            """, (error, duration_ms, task_id, url))
+            """, (error, duration_ms, task_id, turns, cost_usd, url))
         else:
             attempts = 99 if permanent else "COALESCE(apply_attempts, 0) + 1"
             conn.execute(f"""
                 UPDATE jobs SET apply_status = ?, apply_error = ?,
                                apply_attempts = {attempts}, agent_id = NULL,
-                               apply_duration_ms = ?, apply_task_id = ?
+                               apply_duration_ms = ?, apply_task_id = ?,
+                               apply_turns = ?, apply_cost_usd = ?
                 WHERE url = ?
-            """, (status, error or "unknown", duration_ms, task_id, url))
+            """, (status, error or "unknown", duration_ms, task_id, turns, cost_usd, url))
     conn.commit()
 
 
@@ -327,8 +332,7 @@ def reset_failed() -> int:
         UPDATE jobs SET apply_status = NULL, apply_error = NULL,
                        apply_attempts = 0, agent_id = NULL
         WHERE apply_status = 'failed'
-          OR (apply_status IS NOT NULL AND apply_status != 'applied'
-              AND (apply_status IS NULL OR apply_status != 'in_progress')
+          OR (apply_status IS NOT NULL AND apply_status NOT IN ('applied', 'already_applied', 'in_progress', 'manual')
     """)
     conn.commit()
     return cursor.rowcount
@@ -339,18 +343,25 @@ def reset_failed() -> int:
 # ---------------------------------------------------------------------------
 
 def _watchdog(worker_id: int, proc: subprocess.Popen,
-               inactivity_limit: int = 300) -> None:
-    """Kill the Claude process if last_action hasn't changed for inactivity_limit seconds."""
+               inactivity_limit: int = 300,
+               wall_limit: int = 600) -> None:
+    """Kill the Claude process if inactive for inactivity_limit seconds or total wall time exceeds wall_limit."""
     last_action = None
     last_change = time.time()
+    start = time.time()
     while proc.poll() is None:
+        now = time.time()
         ws = get_state(worker_id)
         current_action = ws.last_action if ws else None
         if current_action != last_action:
             last_action = current_action
-            last_change = time.time()
-        if time.time() - last_change > inactivity_limit:
+            last_change = now
+        if now - last_change > inactivity_limit:
             add_event(f"[W{worker_id}] INACTIVITY TIMEOUT — no progress for 5 min")
+            _kill_process_tree(proc.pid)
+            break
+        if now - start > wall_limit:
+            add_event(f"[W{worker_id}] WALL TIMEOUT — job exceeded {wall_limit//60} min limit")
             _kill_process_tree(proc.pid)
             break
         time.sleep(10)
@@ -543,14 +554,21 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     conn.commit()
                 break
 
+        turns = stats.get("turns") if stats else None
+        cost_usd = stats.get("cost_usd") if stats else None
         if stats:
-            cost = stats.get("cost_usd", 0)
             ws = get_state(worker_id)
             prev_cost = ws.total_cost if ws else 0.0
-            update_state(worker_id, total_cost=prev_cost + cost)
+            update_state(worker_id, total_cost=prev_cost + (cost_usd or 0))
 
         def _clean_reason(s: str) -> str:
             return re.sub(r'[*`"]+$', '', s).strip()
+
+        if "RESULT:ALREADY_APPLIED" in output:
+            add_event(f"[W{worker_id}] ALREADY APPLIED ({elapsed}s, {turns or '?'} turns): {job['title'][:30]}")
+            update_state(worker_id, status="already_applied",
+                         last_action=f"ALREADY APPLIED ({elapsed}s)")
+            return "already_applied", duration_ms, None, turns, cost_usd
 
         if "RESULT:APPLIED" in output:
             final_url = None
@@ -559,17 +577,17 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     parts = line.strip().split("RESULT:APPLIED:")
                     final_url = parts[1].strip() if len(parts) > 1 else None
                     break
-            add_event(f"[W{worker_id}] APPLIED ({elapsed}s): {job['title'][:30]}")
+            add_event(f"[W{worker_id}] APPLIED ({elapsed}s, {turns or '?'} turns): {job['title'][:30]}")
             update_state(worker_id, status="applied",
                          last_action=f"APPLIED ({elapsed}s)")
-            return "applied", duration_ms, final_url
+            return "applied", duration_ms, final_url, turns, cost_usd
 
         for result_status in ["EXPIRED", "CAPTCHA", "LOGIN_ISSUE"]:
             if f"RESULT:{result_status}" in output:
-                add_event(f"[W{worker_id}] {result_status} ({elapsed}s): {job['title'][:30]}")
+                add_event(f"[W{worker_id}] {result_status} ({elapsed}s, {turns or '?'} turns): {job['title'][:30]}")
                 update_state(worker_id, status=result_status.lower(),
                              last_action=f"{result_status} ({elapsed}s)")
-                return result_status.lower(), duration_ms, None
+                return result_status.lower(), duration_ms, None, turns, cost_usd
 
         if "RESULT:FAILED" in output:
             for out_line in output.split("\n"):
@@ -582,25 +600,25 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     reason = _clean_reason(reason)
                     PROMOTE_TO_STATUS = {"captcha", "expired", "login_issue"}
                     if reason in PROMOTE_TO_STATUS:
-                        add_event(f"[W{worker_id}] {reason.upper()} ({elapsed}s): {job['title'][:30]}")
+                        add_event(f"[W{worker_id}] {reason.upper()} ({elapsed}s, {turns or '?'} turns): {job['title'][:30]}")
                         update_state(worker_id, status=reason,
                                      last_action=f"{reason.upper()} ({elapsed}s)")
-                        return reason, duration_ms, None
-                    add_event(f"[W{worker_id}] FAILED ({elapsed}s): {reason[:30]}")
+                        return reason, duration_ms, None, turns, cost_usd
+                    add_event(f"[W{worker_id}] FAILED ({elapsed}s, {turns or '?'} turns): {reason[:30]}")
                     update_state(worker_id, status="failed",
                                  last_action=f"FAILED: {reason[:25]}")
-                    return f"failed:{reason}", duration_ms, None
-            return "failed:unknown", duration_ms, None
+                    return f"failed:{reason}", duration_ms, None, turns, cost_usd
+            return "failed:unknown", duration_ms, None, turns, cost_usd
 
         add_event(f"[W{worker_id}] NO RESULT ({elapsed}s)")
         update_state(worker_id, status="failed", last_action=f"no result ({elapsed}s)")
-        return "failed:no_result_line", duration_ms, None
+        return "failed:no_result_line", duration_ms, None, turns, cost_usd
 
     except Exception as e:
         duration_ms = int((time.time() - start) * 1000)
         add_event(f"[W{worker_id}] ERROR: {str(e)[:40]}")
         update_state(worker_id, status="failed", last_action=f"ERROR: {str(e)[:25]}")
-        return f"failed:{str(e)[:100]}", duration_ms, None
+        return f"failed:{str(e)[:100]}", duration_ms, None, None, None
     finally:
         with _claude_lock:
             _claude_procs.pop(worker_id, None)
@@ -752,8 +770,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             add_event(f"[W{worker_id}] Launching Chrome...")
             chrome_proc = launch_chrome(worker_id, port=port, headless=headless)
 
-            result, duration_ms, final_url = run_job(job, port=port, worker_id=worker_id,
-                                                      model=model, dry_run=dry_run)
+            result, duration_ms, final_url, turns, cost_usd = run_job(
+                job, port=port, worker_id=worker_id, model=model, dry_run=dry_run)
 
             if result == "skipped":
                 release_lock(job["url"])
@@ -763,9 +781,12 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                     with shared_limit._lock:
                         shared_limit._remaining += 1
                 continue
+            elif result == "already_applied":
+                mark_result(job["url"], "already_applied", duration_ms=duration_ms,
+                            permanent=True, turns=turns, cost_usd=cost_usd)
             elif result == "applied":
                 mark_result(job["url"], "applied", duration_ms=duration_ms,
-                            application_url=final_url)
+                            application_url=final_url, turns=turns, cost_usd=cost_usd)
                 applied += 1
                 update_state(worker_id, jobs_applied=applied,
                              jobs_done=applied + failed)
@@ -773,7 +794,7 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                 reason = result.split(":", 1)[-1] if ":" in result else result
                 mark_result(job["url"], "failed", reason,
                             permanent=_is_permanent_failure(result),
-                            duration_ms=duration_ms)
+                            duration_ms=duration_ms, turns=turns, cost_usd=cost_usd)
                 failed += 1
                 update_state(worker_id, jobs_failed=failed,
                              jobs_done=applied + failed)
