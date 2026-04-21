@@ -185,9 +185,9 @@ def store_jobspy_results(conn: sqlite3.Connection, df, source_label: str) -> tup
         try:
             from applypilot.utils.job_id import extract_job_id
             conn.execute(
-                "INSERT INTO jobs (url, title, company, salary, description, location, site, strategy, discovered_at, "
+                "INSERT INTO jobs (url, title, company, salary, description, location, site, strategy, source, discovered_at, "
                 "full_description, application_url, detail_scraped_at, url_job_id, app_url_job_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'jobspy', ?, ?, ?, ?, ?, ?)",
                 (url, title, company, salary, description, location_str, site_label, strategy, now,
                  full_description, apply_url, detail_scraped_at,
                  extract_job_id(url), extract_job_id(apply_url)),

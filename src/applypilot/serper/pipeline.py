@@ -653,15 +653,17 @@ def promote_serper_jobs_to_jobs() -> int:
     for r in rows:
         canonical_url = (r["apply_url"] or "").strip() or r["url"]
         application_url = None if r["ats_type"] == "linkedin" else canonical_url
+        source = "serperdev" if r["ats_type"] == "linkedin" else "apify"
         cur = conn.execute("""
             INSERT OR IGNORE INTO jobs
-                (url, title, company, location, site, strategy,
+                (url, title, company, location, site, strategy, source,
                  application_url, full_description, discovered_at,
                  url_job_id, app_url_job_id)
-            VALUES (?, ?, ?, ?, ?, 'serpapi', ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'serpapi', ?, ?, ?, ?, ?, ?)
         """, (
             canonical_url,
             r["title"], r["company"], r["location"], r["ats_type"],
+            source,
             application_url,
             r["full_description"],
             r["discovered_at"] or now,

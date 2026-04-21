@@ -10,6 +10,62 @@ salary, etc.) or are static standard responses (EEO, compliance, etc.).
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+_LEARNED_QA_PATH = Path.home() / ".applypilot" / "qa_learned.yaml"
+
+
+def _normalize_key(q: str) -> str:
+    """Canonical form for dedup: lowercase, strip punctuation."""
+    return re.sub(r"[^a-z0-9 ]", "", q.lower().strip().rstrip("?")).strip()
+
+
+def load_learned_qa() -> list[tuple[str, str]]:
+    """Load Q&A pairs from qa_learned.yaml. Returns [] if file missing."""
+    if not _LEARNED_QA_PATH.exists():
+        return []
+    try:
+        import yaml  # type: ignore
+        data = yaml.safe_load(_LEARNED_QA_PATH.read_text(encoding="utf-8")) or []
+        return [(item["q"], item["a"]) for item in data if item.get("q") and item.get("a")]
+    except Exception:
+        return []
+
+
+def save_learned_qa(new_pairs: list[tuple[str, str]]) -> int:
+    """Merge new Q&A pairs into qa_learned.yaml, deduplicating by normalized key.
+
+    Returns number of net-new pairs added.
+    """
+    if not new_pairs:
+        return 0
+
+    try:
+        import yaml  # type: ignore
+        existing = load_learned_qa()
+        seen = {_normalize_key(q) for q, _ in existing}
+        seen.update(_normalize_key(q) for q, _ in _STATIC_QA)
+
+        added = 0
+        merged = list(existing)
+        for q, a in new_pairs:
+            key = _normalize_key(q)
+            if key and key not in seen:
+                merged.append({"q": q.strip(), "a": a.strip()})
+                seen.add(key)
+                added += 1
+
+        if added:
+            _LEARNED_QA_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _LEARNED_QA_PATH.write_text(
+                yaml.dump(merged, allow_unicode=True, default_flow_style=False),
+                encoding="utf-8",
+            )
+        return added
+    except Exception:
+        return 0
+
 # ---------------------------------------------------------------------------
 # Static Q&A pairs: questions whose answers don't depend on the profile.
 # Keys are lowercased, punctuation-stripped canonical forms.
@@ -71,6 +127,20 @@ _STATIC_QA: list[tuple[str, str]] = [
     ("are you a relative of any 5 percent stockholder", "No"),
     ("have you ever been a partner or employee of an audit firm engaged by this company", "No"),
     ("are you aware of any actual or potential conflict of interest", "No"),
+
+    # Financial / insurance industry regulatory compliance (Guardian Life, Prudential, etc.)
+    ("have you ever been involuntarily discharged or dismissed for cause", "No"),
+    ("have you ever resigned under pressure or in lieu of termination", "No"),
+    ("are you affiliated with any regulatory body or self-regulatory organization", "No"),
+    ("do you have any financial interest in a competitor or business that conflicts with this role", "No"),
+    ("have you been subject to any regulatory investigation or inquiry", "No"),
+    ("are you subject to any restrictions sanctions or bars from the securities industry", "No"),
+    ("do you have any covered relationships with a government official", "No"),
+    ("have you ever had a license or registration denied suspended or revoked", "No"),
+    ("have you ever been named in a regulatory complaint or customer arbitration", "No"),
+    ("are you currently under investigation by any regulatory authority", "No"),
+    ("have you ever been charged with or convicted of a felony or misdemeanor involving fraud", "No"),
+    ("do you have any outstanding judgments liens or bankruptcies", "No"),
 
     # How did you hear
     ("how did you hear about this position", "Online Job Board"),
@@ -173,17 +243,25 @@ def _profile_qa(profile: dict) -> list[tuple[str, str]]:
 def build_qa_section(profile: dict) -> str:
     """Return a formatted prompt section with pre-answered standard questions.
 
-    Claude reads this section and fills matching form fields directly,
-    skipping reasoning turns for questions that have already been answered.
+    Merges static, profile-derived, and learned Q&A pairs, deduplicating by
+    normalized key. Claude fills matching fields directly without reasoning.
     """
-    all_qa = _STATIC_QA + _profile_qa(profile)
+    seen: set[str] = set()
+    deduped: list[tuple[str, str]] = []
+
+    for q, a in _STATIC_QA + _profile_qa(profile) + load_learned_qa():
+        key = _normalize_key(q)
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append((q, a))
 
     lines = [
         "== PRE-ANSWERED QUESTIONS ==",
         "For any form field or screening question that matches one of these, fill it directly. No reasoning needed.",
+        "Use these answers directly — no reasoning needed. You will log all questions answered at the end (see RESULT CODES).",
         "",
     ]
-    for q, a in all_qa:
+    for q, a in deduped:
         lines.append(f"Q: {q.strip('?').strip().capitalize()}?")
         lines.append(f"A: {a}")
         lines.append("")

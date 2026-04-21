@@ -34,6 +34,7 @@ COMPANY_BLOCKLIST: list[str] = [
     "%open%ai%",
     "%openai%",
     "%roblox%",
+    "%usaa%",
 ]
 
 # URL patterns — matched against lower(url) and lower(application_url).
@@ -53,6 +54,8 @@ URL_BLOCKLIST: list[str] = [
     "%google.com%",
     "%cvs%",
     "%whatjobs%",
+    "%sofi.com%",
+    "%usaa%",
 ]
 
 # Exact case-sensitive matches (compared directly against company column, no lower()).

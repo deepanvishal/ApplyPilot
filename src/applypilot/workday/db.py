@@ -142,10 +142,10 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
             INSERT OR IGNORE INTO jobs (
                 url, title, company, location,
                 full_description, description,
-                application_url, site,
+                application_url, site, source,
                 discovered_at, apply_status,
                 url_job_id, app_url_job_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             url,
             title,
@@ -155,6 +155,7 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> tuple[int, int]:
             job.get("description"),
             application_url,
             "workday",
+            "explore_workday",
             job.get("discovered_at"),
             job.get("apply_status"),
             extract_job_id(url),

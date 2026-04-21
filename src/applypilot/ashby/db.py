@@ -131,9 +131,9 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> dict:
             INSERT OR IGNORE INTO jobs (
                 url, title, company, location,
                 full_description, description,
-                application_url, site, discovered_at,
+                application_url, site, source, discovered_at,
                 url_job_id, app_url_job_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             _url,
             job.get("title"),
@@ -143,6 +143,7 @@ def insert_jobs(jobs: list[dict], dry_run: bool = False) -> dict:
             job.get("description"),
             _app_url,
             "ashby",
+            "explore_ashby",
             job.get("discovered_at"),
             extract_job_id(_url),
             extract_job_id(_app_url),

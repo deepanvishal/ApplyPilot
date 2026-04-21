@@ -53,6 +53,7 @@ _stop_event = threading.Event()
 # Track active Claude Code processes for skip (Ctrl+C) handling
 _claude_procs: dict[int, subprocess.Popen] = {}
 _claude_lock = threading.Lock()
+_watchdog_killed: dict[int, bool] = {}  # set when watchdog terminates a worker
 
 # Register cleanup on exit
 atexit.register(cleanup_on_exit)
@@ -99,8 +100,15 @@ _STRICT_KEYWORDS = [
 ]
 
 
+ATS_ONLY_SITES = (
+    "workday", "greenhouse", "ashby", "lever",
+    "bamboohr", "smartrecruiters", "jobvite",
+)
+
+
 def acquire_job(target_url: str | None = None, min_score: int = 7,
-                worker_id: int = 0, strict: bool = False) -> dict | None:
+                worker_id: int = 0, strict: bool = False,
+                ats_only: bool = False) -> dict | None:
     """Atomically acquire the next job to apply to.
 
     Args:
@@ -118,7 +126,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
         if target_url:
             row = conn.execute("""
                 SELECT url, title, site, application_url, tailored_resume_path,
-                       fit_score, location, full_description, cover_letter_path
+                       fit_score, location, full_description, cover_letter_path, company
                 FROM jobs
                 WHERE (url = ? OR application_url = ?)
                   AND tailored_resume_path IS NOT NULL
@@ -144,9 +152,14 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                     f"LOWER(title) LIKE ?" for _ in _STRICT_KEYWORDS
                 ) + ")"
                 params.extend(f"%{kw}%" for kw in _STRICT_KEYWORDS)
+            ats_clause = ""
+            if ats_only:
+                placeholders = ",".join("?" * len(ATS_ONLY_SITES))
+                ats_clause = f"AND site IN ({placeholders})"
+                params.extend(ATS_ONLY_SITES)
             row = conn.execute(f"""
                 SELECT url, title, site, application_url, tailored_resume_path,
-                       fit_score, location, full_description, cover_letter_path
+                       fit_score, location, full_description, cover_letter_path, company
                 FROM jobs
                 WHERE tailored_resume_path IS NOT NULL
                   AND (apply_status IS NULL OR apply_status = 'failed')
@@ -156,6 +169,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   {site_clause}
                   {url_clauses}
                   {strict_clause}
+                  {ats_clause}
                 ORDER BY
                     CASE WHEN optimizer_rank > 0 THEN optimizer_rank ELSE 999999 END ASC,
                     fit_score DESC,
@@ -224,7 +238,7 @@ def mark_result(url: str, status: str, error: str | None = None,
     else:
         # Transient infrastructure failures: reset to NULL so the job is re-queued
         # without counting against apply_attempts.
-        TRANSIENT_ERRORS = {"browser_unavailable", "no_result_line"}
+        TRANSIENT_ERRORS = {"browser_unavailable"}
         if error in TRANSIENT_ERRORS:
             conn.execute("""
                 UPDATE jobs SET apply_status = NULL, apply_error = ?,
@@ -344,7 +358,7 @@ def reset_failed() -> int:
 
 def _watchdog(worker_id: int, proc: subprocess.Popen,
                inactivity_limit: int = 300,
-               wall_limit: int = 600) -> None:
+               wall_limit: int = 720) -> None:
     """Kill the Claude process if inactive for inactivity_limit seconds or total wall time exceeds wall_limit."""
     last_action = None
     last_change = time.time()
@@ -358,10 +372,12 @@ def _watchdog(worker_id: int, proc: subprocess.Popen,
             last_change = now
         if now - last_change > inactivity_limit:
             add_event(f"[W{worker_id}] INACTIVITY TIMEOUT — no progress for 5 min")
+            _watchdog_killed[worker_id] = True
             _kill_process_tree(proc.pid)
             break
         if now - start > wall_limit:
             add_event(f"[W{worker_id}] WALL TIMEOUT — job exceeded {wall_limit//60} min limit")
+            _watchdog_killed[worker_id] = True
             _kill_process_tree(proc.pid)
             break
         time.sleep(10)
@@ -372,7 +388,8 @@ def _watchdog(worker_id: int, proc: subprocess.Popen,
 # ---------------------------------------------------------------------------
 
 def run_job(job: dict, port: int, worker_id: int = 0,
-            model: str = "haiku", dry_run: bool = False) -> tuple[str, int]:
+            model: str = "haiku", dry_run: bool = False,
+            session_id: str | None = None) -> tuple[str, int]:
     """Spawn a Claude Code session for one job application.
 
     Returns:
@@ -380,6 +397,10 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         'applied', 'expired', 'captcha', 'login_issue',
         'failed:reason', or 'skipped'.
     """
+    # Create worker dir first so resume uploads land inside Claude Code's CWD
+    # (Playwright MCP blocks file_upload outside the workspace root)
+    worker_dir = reset_worker_dir(worker_id)
+
     # Read tailored resume text
     resume_path = job.get("tailored_resume_path")
     txt_path = Path(resume_path).with_suffix(".txt") if resume_path else None
@@ -387,11 +408,12 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     if txt_path and txt_path.exists():
         resume_text = txt_path.read_text(encoding="utf-8")
 
-    # Build the prompt
+    # Build the prompt — resume PDF copied into worker_dir so path is inside CWD
     agent_prompt = prompt_mod.build_prompt(
         job=job,
         tailored_resume=resume_text,
         dry_run=dry_run,
+        upload_dir=worker_dir,
     )
 
     # Write per-worker MCP config
@@ -423,8 +445,6 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
-
-    worker_dir = reset_worker_dir(worker_id)
 
     update_state(worker_id, status="applying", job_title=job["title"],
                  company=job.get("site", ""), score=job.get("fit_score", 0),
@@ -472,6 +492,19 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         proc.stdin.close()
 
         text_parts: list[str] = []
+        _diag = session_id is not None
+        _last_event_ts: float = time.time()
+        _turn_counter: int = 0
+        _pending_tool_name: str | None = None
+        _pending_tool_ts: float | None = None
+        _pending_tool_turn: int | None = None
+        _pending_usage: dict = {}
+
+        if _diag:
+            from applypilot.database import emit_worker_event
+            emit_worker_event(session_id, worker_id, "job_acquired",
+                              job_url=job["url"])
+
         with open(worker_log, "a", encoding="utf-8") as lf:
             lf.write(log_header)
 
@@ -482,12 +515,34 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                 try:
                     msg = json.loads(line)
                     msg_type = msg.get("type")
+                    now = time.time()
+
                     if msg_type == "assistant":
+                        usage = msg.get("message", {}).get("usage", {})
+                        _pending_usage = {
+                            "input_tokens":       usage.get("input_tokens"),
+                            "output_tokens":      usage.get("output_tokens"),
+                            "cache_read_tokens":  usage.get("cache_read_input_tokens"),
+                            "cache_write_tokens": usage.get("cache_creation_input_tokens"),
+                        }
                         for block in msg.get("message", {}).get("content", []):
                             bt = block.get("type")
                             if bt == "text":
+                                text = block["text"].strip()
                                 text_parts.append(block["text"])
                                 lf.write(block["text"] + "\n")
+                                if _diag and text:
+                                    _turn_counter += 1
+                                    delta = int((now - _last_event_ts) * 1000)
+                                    emit_worker_event(
+                                        session_id, worker_id, "assistant",
+                                        turn=_turn_counter,
+                                        delta_ms=delta,
+                                        job_url=job["url"],
+                                        detail=text[:80],
+                                        **_pending_usage,
+                                    )
+                                    _last_event_ts = now
                             elif bt == "tool_use":
                                 name = (
                                     block.get("name", "")
@@ -512,6 +567,45 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                                 update_state(worker_id,
                                              actions=cur_actions + 1,
                                              last_action=desc[:35])
+                                if _diag:
+                                    _turn_counter += 1
+                                    delta = int((now - _last_event_ts) * 1000)
+                                    emit_worker_event(
+                                        session_id, worker_id, "tool_use",
+                                        turn=_turn_counter,
+                                        delta_ms=delta,
+                                        job_url=job["url"],
+                                        detail=desc[:80],
+                                        **_pending_usage,
+                                    )
+                                    _pending_tool_name = desc
+                                    _pending_tool_ts = now
+                                    _pending_tool_turn = _turn_counter
+                                    _last_event_ts = now
+
+                    elif msg_type == "tool_result" and _diag:
+                        content = msg.get("content", "")
+                        if isinstance(content, list):
+                            result_str = " ".join(
+                                c.get("text", "") for c in content if isinstance(c, dict)
+                            )
+                        else:
+                            result_str = str(content)
+                        rbytes = len(result_str.encode("utf-8", errors="replace"))
+                        is_err = msg.get("is_error", False)
+                        summary = ("ERR:" + result_str[:60]) if is_err else f"OK {rbytes}b"
+                        _turn_counter += 1
+                        delta = int((now - _last_event_ts) * 1000)
+                        emit_worker_event(
+                            session_id, worker_id, "tool_result",
+                            turn=_turn_counter,
+                            delta_ms=delta,
+                            job_url=job["url"],
+                            detail=summary[:80],
+                            result_bytes=rbytes,
+                        )
+                        _last_event_ts = now
+
                     elif msg_type == "result":
                         stats = {
                             "input_tokens": msg.get("usage", {}).get("input_tokens", 0),
@@ -530,16 +624,20 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         returncode = proc.returncode
         proc = None
 
-        if returncode and returncode < 0:
-            return "skipped", int((time.time() - start) * 1000)
-
         output = "\n".join(text_parts)
         elapsed = int(time.time() - start)
         duration_ms = int((time.time() - start) * 1000)
 
+        # Process was killed by watchdog or Ctrl+C. Only skip if Claude hadn't
+        # already emitted a RESULT line — otherwise we'd lose a real apply.
+        # On Windows taskkill returns 1 (not negative), so check the watchdog flag.
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         job_log = config.LOG_DIR / f"claude_{ts}_w{worker_id}_{job.get('site', 'unknown')[:20]}.txt"
         job_log.write_text(output, encoding="utf-8")
+
+        killed = _watchdog_killed.pop(worker_id, False)
+        if (killed or (returncode and returncode < 0)) and "RESULT:" not in output:
+            return "failed:timed_out", duration_ms, None, None, None
 
         # Extract and save actual apply URL if agent captured a redirect
         for line in output.split("\n"):
@@ -564,15 +662,51 @@ def run_job(job: dict, port: int, worker_id: int = 0,
         def _clean_reason(s: str) -> str:
             return re.sub(r'[*`"]+$', '', s).strip()
 
-        if "RESULT:ALREADY_APPLIED" in output:
+        def _normalize_output(raw: str) -> str:
+            """Normalize RESULT lines: strip markdown, collapse 'RESULT: X' → 'RESULT:X'."""
+            lines = []
+            for ln in raw.split("\n"):
+                s = ln.strip().lstrip("*` ")
+                # Collapse space after colon: "RESULT: FAILED" → "RESULT:FAILED"
+                s = re.sub(r'\bRESULT:\s+', 'RESULT:', s)
+                lines.append(s)
+            return "\n".join(lines)
+
+        output_norm = _normalize_output(output)
+
+        # Extract and persist any new Q&A pairs Claude learned during this run
+        _learned: list[tuple[str, str]] = []
+        _learned_seen: set[str] = set()
+        _SKIP_QA_KEYS = {"full name", "first name", "last name", "middle name",
+                         "email", "phone", "address", "location", "resume",
+                         "linkedin", "github", "city", "state", "zip", "country"}
+        for _line in output_norm.split("\n"):
+            if _line.startswith("QA:") and "|" in _line:
+                parts = _line[3:].split("|", 1)
+                if len(parts) == 2:
+                    q, a = parts[0].strip(), parts[1].strip()
+                    qkey = q.lower().strip()
+                    if qkey in _learned_seen:
+                        continue
+                    if any(skip in qkey for skip in _SKIP_QA_KEYS):
+                        continue
+                    _learned_seen.add(qkey)
+                    _learned.append((q, a))
+        if _learned:
+            from applypilot.apply.qa_cache import save_learned_qa
+            added = save_learned_qa(_learned)
+            if added:
+                logger.info("qa_cache: saved %d new Q&A pairs", added)
+
+        if "RESULT:ALREADY_APPLIED" in output_norm:
             add_event(f"[W{worker_id}] ALREADY APPLIED ({elapsed}s, {turns or '?'} turns): {job['title'][:30]}")
             update_state(worker_id, status="already_applied",
                          last_action=f"ALREADY APPLIED ({elapsed}s)")
             return "already_applied", duration_ms, None, turns, cost_usd
 
-        if "RESULT:APPLIED" in output:
+        if "RESULT:APPLIED" in output_norm or "RESULT:SUCCESS" in output_norm:
             final_url = None
-            for line in output.split("\n"):
+            for line in output_norm.split("\n"):
                 if "RESULT:APPLIED" in line:
                     parts = line.strip().split("RESULT:APPLIED:")
                     final_url = parts[1].strip() if len(parts) > 1 else None
@@ -583,14 +717,14 @@ def run_job(job: dict, port: int, worker_id: int = 0,
             return "applied", duration_ms, final_url, turns, cost_usd
 
         for result_status in ["EXPIRED", "CAPTCHA", "LOGIN_ISSUE"]:
-            if f"RESULT:{result_status}" in output:
+            if f"RESULT:{result_status}" in output_norm:
                 add_event(f"[W{worker_id}] {result_status} ({elapsed}s, {turns or '?'} turns): {job['title'][:30]}")
                 update_state(worker_id, status=result_status.lower(),
                              last_action=f"{result_status} ({elapsed}s)")
                 return result_status.lower(), duration_ms, None, turns, cost_usd
 
-        if "RESULT:FAILED" in output:
-            for out_line in output.split("\n"):
+        if "RESULT:FAILED" in output_norm:
+            for out_line in output_norm.split("\n"):
                 if "RESULT:FAILED" in out_line:
                     reason = (
                         out_line.split("RESULT:FAILED:")[-1].strip()
@@ -610,6 +744,28 @@ def run_job(job: dict, port: int, worker_id: int = 0,
                     return f"failed:{reason}", duration_ms, None, turns, cost_usd
             return "failed:unknown", duration_ms, None, turns, cost_usd
 
+        # Fallback: Claude wrote prose confirmation but forgot the RESULT code.
+        # Detect known submission signals so we don't lose real applications.
+        _SUCCESS_PHRASES = [
+            "application has been successfully submitted",
+            "application was successfully submitted",
+            "successfully submitted the application",
+            "application has been submitted successfully",
+            "successfully submitted your application",
+            "your application has been received",
+            "thank you for applying",
+            "thank you for submitting",
+            "your application was sent",
+            "application submitted successfully",
+            "application submitted!",
+        ]
+        output_lower = output_norm.lower()
+        if any(phrase in output_lower for phrase in _SUCCESS_PHRASES):
+            logger.warning("[W%d] no RESULT code but found submission phrase — marking applied", worker_id)
+            add_event(f"[W{worker_id}] APPLIED (inferred, {elapsed}s): {job['title'][:30]}")
+            update_state(worker_id, status="applied", last_action=f"APPLIED inferred ({elapsed}s)")
+            return "applied", duration_ms, None, turns, cost_usd
+
         add_event(f"[W{worker_id}] NO RESULT ({elapsed}s)")
         update_state(worker_id, status="failed", last_action=f"no result ({elapsed}s)")
         return "failed:no_result_line", duration_ms, None, turns, cost_usd
@@ -622,6 +778,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     finally:
         with _claude_lock:
             _claude_procs.pop(worker_id, None)
+        _watchdog_killed.pop(worker_id, None)
         if proc is not None and proc.poll() is None:
             _kill_process_tree(proc.pid)
 
@@ -633,9 +790,12 @@ def run_job(job: dict, port: int, worker_id: int = 0,
 PERMANENT_FAILURES: set[str] = {
     "expired", "captcha", "login_issue",
     "not_eligible_location", "not_eligible_salary",
+    "not_eligible_work_auth", "sponsorship_not_available", "requires_h1b_sponsorship",
     "already_applied", "account_required",
     "not_a_job_application", "unsafe_permissions",
     "unsafe_verification", "sso_required",
+    "ats_form_validation", "form_validation_blocker", "form_validation_loop",
+    "no_result_line", "timed_out",
     "site_blocked", "cloudflare_blocked", "blocked_by_cloudflare",
 }
 
@@ -684,7 +844,9 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                 min_score: int = 7, headless: bool = False,
                 model: str = "haiku", dry_run: bool = False,
                 shared_limit: _SharedLimit | None = None,
-                strict: bool = False) -> tuple[int, int]:
+                strict: bool = False,
+                session_id: str | None = None,
+                ats_only: bool = False) -> tuple[int, int]:
     """Run jobs sequentially until limit is reached or queue is empty.
 
     Args:
@@ -707,6 +869,11 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
     jobs_done = 0
     empty_polls = 0
     port = BASE_CDP_PORT + worker_id
+    _diag = session_id is not None
+
+    if _diag:
+        from applypilot.database import emit_worker_event as _emit
+        _emit(session_id, worker_id, "worker_start")
 
     _limit_reached = False
 
@@ -724,7 +891,7 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                      last_action="waiting for job", actions=0)
 
         job = acquire_job(target_url=target_url, min_score=min_score,
-                          worker_id=worker_id, strict=strict)
+                          worker_id=worker_id, strict=strict, ats_only=ats_only)
         if not job:
             if not continuous:
                 add_event(f"[W{worker_id}] Queue empty")
@@ -740,6 +907,9 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                          last_action=f"polling ({empty_polls})")
             if empty_polls == 1:
                 add_event(f"[W{worker_id}] Queue empty, polling every {POLL_INTERVAL}s...")
+                if _diag:
+                    _emit(session_id, worker_id, "worker_idle",
+                          detail=f"queue empty, poll #{empty_polls}")
             # Use Event.wait for interruptible sleep
             if _stop_event.wait(timeout=POLL_INTERVAL):
                 break  # Stop was requested during wait
@@ -758,6 +928,13 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
         elif ("jobs.intuit.com" in app_url.lower() or "jobs.intuit.com" in _job_url.lower()
               or "intuit.avature.net" in app_url.lower() or "intuit.avature.net" in _job_url.lower()):
             _blocked_domain = "Intuit"
+        elif (
+            "netflix" in app_url.lower()
+            or "netflix" in _job_url.lower()
+            or "netflix" in job.get("title", "").lower()
+            or "netflix" in (job.get("company") or "").lower()
+        ):
+            _blocked_domain = "Netflix"
         if _blocked_domain:
             mark_result(job["url"], "failed", "blocked_domain", permanent=True)
             add_event(f"[W{worker_id}] BLOCKED {_blocked_domain}: {job['title'][:30]}")
@@ -771,7 +948,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
             chrome_proc = launch_chrome(worker_id, port=port, headless=headless)
 
             result, duration_ms, final_url, turns, cost_usd = run_job(
-                job, port=port, worker_id=worker_id, model=model, dry_run=dry_run)
+                job, port=port, worker_id=worker_id, model=model, dry_run=dry_run,
+                session_id=session_id)
 
             if result == "skipped":
                 release_lock(job["url"])
@@ -799,6 +977,15 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                 update_state(worker_id, jobs_failed=failed,
                              jobs_done=applied + failed)
 
+            if _diag:
+                _status = result if result in ("applied", "already_applied") else result.split(":", 1)[-1] if ":" in result else result
+                _emit(session_id, worker_id, "job_done",
+                      job_url=job["url"],
+                      apply_status=_status,
+                      total_turns=turns,
+                      total_cost_usd=cost_usd,
+                      duration_ms=duration_ms)
+
         except KeyboardInterrupt:
             release_lock(job["url"])
             if _stop_event.is_set():
@@ -821,6 +1008,9 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
 
     last_action = "limit reached" if _limit_reached and jobs_done == 0 else "finished"
     update_state(worker_id, status="done", last_action=last_action)
+    if _diag:
+        _emit(session_id, worker_id, "worker_stop",
+              detail=f"applied={applied} failed={failed}")
     return applied, failed
 
 
@@ -832,7 +1022,8 @@ def main(limit: int = 1, target_url: str | None = None,
          min_score: int = 7, headless: bool = False, model: str = "haiku",
          dry_run: bool = False, continuous: bool = False,
          poll_interval: int = 60, workers: int = 1,
-         strict: bool = False) -> None:
+         strict: bool = False, diagnose: bool = False,
+         ats_only: bool = False) -> None:
     """Launch the apply pipeline.
 
     Args:
@@ -846,9 +1037,12 @@ def main(limit: int = 1, target_url: str | None = None,
         poll_interval: Seconds between DB polls when queue is empty.
         workers: Number of parallel workers (default 1).
     """
+    import uuid
     global POLL_INTERVAL
     POLL_INTERVAL = poll_interval
     _stop_event.clear()
+
+    session_id = str(uuid.uuid4())[:8] if diagnose else None
 
     config.ensure_dirs()
     console = Console()
@@ -917,6 +1111,8 @@ def main(limit: int = 1, target_url: str | None = None,
                     model=model,
                     dry_run=dry_run,
                     strict=strict,
+                    session_id=session_id,
+                    ats_only=ats_only,
                 )
             else:
                 # Multi-worker — shared counter so any free worker picks the next job
@@ -936,6 +1132,8 @@ def main(limit: int = 1, target_url: str | None = None,
                             dry_run=dry_run,
                             shared_limit=shared,
                             strict=strict,
+                            session_id=session_id,
+                            ats_only=ats_only,
                         ): i
                         for i in range(workers)
                     }

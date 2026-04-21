@@ -121,10 +121,10 @@ def promote_genie_jobs_to_jobs() -> int:
     for r in rows:
         cur = conn.execute("""
             INSERT OR IGNORE INTO jobs
-                (url, title, company, location, site, strategy,
+                (url, title, company, location, site, strategy, source,
                  application_url, full_description, discovered_at,
                  url_job_id, app_url_job_id)
-            VALUES (?, ?, ?, ?, ?, 'genie', ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'genie', 'genie', ?, ?, ?, ?, ?)
         """, (
             r["url"], r["title"], r["company"], r["location"], r["ats_type"],
             r["apply_url"], r["full_description"],

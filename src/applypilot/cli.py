@@ -164,6 +164,8 @@ def apply(
     fail_reason: Optional[str] = typer.Option(None, "--fail-reason", help="Reason for --mark-failed."),
     reset_failed: bool = typer.Option(False, "--reset-failed", help="Reset all failed jobs for retry."),
     strict: bool = typer.Option(False, "--strict", help="Only apply to jobs whose title contains a strict ML/DS keyword (data scientist, recommendation, etc.)."),
+    diagnose: bool = typer.Option(False, "--diagnose", help="Log every turn/tool-call to worker_events table for timing and token analysis."),
+    ats_only: bool = typer.Option(False, "--ats-only", help="Only apply to direct ATS jobs (workday, greenhouse, ashby, lever, bamboohr, smartrecruiters, jobvite). Skips LinkedIn/Indeed."),
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
@@ -262,6 +264,8 @@ def apply(
         continuous=continuous,
         workers=workers,
         strict=strict,
+        diagnose=diagnose,
+        ats_only=ats_only,
     )
 
 
@@ -1241,6 +1245,159 @@ def predict_expiry(
     console.print(f"  [green]Active[/green]  : {counts['active']}")
     console.print(f"  Skipped : {counts['skipped']}  (LinkedIn-only, no auth)")
     console.print(f"  Time    : {elapsed:.1f}s")
+
+
+@app.command()
+def logs(
+    workers: int = typer.Option(4, "--workers", "-w", help="Number of worker panels to show."),
+    interval: float = typer.Option(1.5, "--interval", help="Refresh interval in seconds."),
+    lines: int = typer.Option(18, "--lines", "-n", help="Event lines per worker panel."),
+) -> None:
+    """Live per-worker event stream from the current apply session.
+
+    Run in a separate terminal alongside `applypilot apply` to watch
+    each worker's turn-by-turn progress in real time.
+
+    Examples:
+        applypilot logs
+        applypilot logs --workers 3
+        applypilot logs --lines 25
+    """
+    import time
+    from rich.live import Live
+    from rich.layout import Layout
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.console import Console as RichConsole
+
+    _bootstrap()
+
+    STATUS_COLORS = {
+        "applied": "green",
+        "already_applied": "cyan",
+        "failed": "red",
+        "no_result_line": "red",
+        "expired": "yellow",
+        "login_issue": "yellow",
+        "captcha": "magenta",
+        "in_progress": "blue",
+    }
+    EVENT_COLORS = {
+        "assistant": "cyan",
+        "tool_use": "white",
+        "tool_result": "dim white",
+        "job_acquired": "green",
+        "job_done": "bold",
+        "worker_start": "dim green",
+        "worker_idle": "dim yellow",
+        "worker_stop": "dim red",
+    }
+
+    def _get_session_id() -> str | None:
+        from applypilot.database import get_connection
+        conn = get_connection()
+        row = conn.execute("""
+            SELECT session_id FROM worker_events
+            ORDER BY id DESC LIMIT 1
+        """).fetchone()
+        return row[0] if row else None
+
+    def _get_worker_events(session_id: str, worker_id: int, limit: int) -> list:
+        from applypilot.database import get_connection
+        conn = get_connection()
+        return conn.execute("""
+            SELECT turn, event, delta_ms, detail, apply_status, total_turns, total_cost_usd
+            FROM worker_events
+            WHERE session_id = ? AND worker_id = ?
+            ORDER BY id DESC LIMIT ?
+        """, (session_id, worker_id, limit)).fetchall()
+
+    def _get_worker_current_job(session_id: str, worker_id: int) -> dict | None:
+        from applypilot.database import get_connection
+        conn = get_connection()
+        row = conn.execute("""
+            SELECT job_url, apply_status
+            FROM worker_events
+            WHERE session_id = ? AND worker_id = ?
+            ORDER BY id DESC LIMIT 1
+        """, (session_id, worker_id)).fetchone()
+        return dict(row) if row else None
+
+    def _build_panel(session_id: str | None, worker_id: int, n_lines: int) -> Panel:
+        if not session_id:
+            return Panel("[dim]Waiting for session...[/dim]", title=f"Worker {worker_id}", border_style="dim")
+
+        events = _get_worker_events(session_id, worker_id, n_lines)
+        current = _get_worker_current_job(session_id, worker_id)
+
+        if not events:
+            return Panel("[dim]idle[/dim]", title=f"W{worker_id}", border_style="dim")
+
+        # Header: current job
+        job_url = (current or {}).get("job_url", "")
+        job_short = job_url.split("/")[-1][:45] if job_url else "idle"
+        status = (current or {}).get("apply_status") or "running"
+        status_color = STATUS_COLORS.get(status, "white")
+
+        text = Text()
+        text.append(f"{job_short}\n", style=f"bold {status_color}")
+
+        # Events (newest first → reverse for display)
+        for row in reversed(events):
+            event = row["event"] or ""
+            detail = (row["detail"] or "")[:55]
+            delta = f"{row['delta_ms']}ms" if row["delta_ms"] else ""
+            turn = row["turn"] or 0
+            color = EVENT_COLORS.get(event, "white")
+
+            if event == "job_done":
+                st = row["apply_status"] or "?"
+                cost = f"${row['total_cost_usd']:.3f}" if row["total_cost_usd"] else ""
+                turns_n = row["total_turns"] or "?"
+                st_color = STATUS_COLORS.get(st, "white")
+                text.append(f"  DONE ", style="bold")
+                text.append(f"[{st}] ", style=f"bold {st_color}")
+                text.append(f"t={turns_n} {cost}\n", style="dim")
+            elif event == "assistant":
+                text.append(f"  T{turn:03d} ", style="dim")
+                text.append(f"{detail[:55]}\n", style=color)
+            elif event == "tool_use":
+                text.append(f"  T{turn:03d} ", style="dim")
+                text.append(f"  > {detail[:50]}", style=color)
+                if delta:
+                    text.append(f"  {delta}", style="dim")
+                text.append("\n")
+            elif event in ("worker_start", "worker_idle", "worker_stop", "job_acquired"):
+                text.append(f"  [{event}]\n", style=EVENT_COLORS.get(event, "dim"))
+            else:
+                text.append(f"  {detail[:55]}\n", style="dim")
+
+        border = "green" if status == "applied" else ("red" if status in ("failed", "no_result_line") else "blue")
+        return Panel(text, title=f"W{worker_id} — {status}", border_style=border)
+
+    c = RichConsole()
+    c.print("\n[bold blue]ApplyPilot Live Worker Logs[/bold blue]  [dim]Ctrl+C to exit[/dim]\n")
+
+    layout = Layout()
+    if workers <= 2:
+        layout.split_row(*[Layout(name=f"w{i}") for i in range(workers)])
+    else:
+        top = Layout()
+        bot = Layout()
+        layout.split_column(top, bot)
+        half = workers // 2
+        top.split_row(*[Layout(name=f"w{i}") for i in range(half)])
+        bot.split_row(*[Layout(name=f"w{i}") for i in range(half, workers)])
+
+    try:
+        with Live(layout, console=c, refresh_per_second=int(1 / interval) + 1, screen=True):
+            while True:
+                session_id = _get_session_id()
+                for i in range(workers):
+                    layout[f"w{i}"].update(_build_panel(session_id, i, lines))
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

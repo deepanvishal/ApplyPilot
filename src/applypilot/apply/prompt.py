@@ -285,7 +285,8 @@ def _build_captcha_section() -> str:
 
 def build_prompt(job: dict, tailored_resume: str,
                  cover_letter: str | None = None,
-                 dry_run: bool = False) -> str:
+                 dry_run: bool = False,
+                 upload_dir: "Path | None" = None) -> str:
     """Build the full instruction prompt for the apply agent.
 
     Loads the user profile and search config internally. All personal data
@@ -317,7 +318,7 @@ def build_prompt(job: dict, tailored_resume: str,
     # Copy to a clean filename for upload (recruiters see the filename)
     full_name = personal["full_name"]
     name_slug = full_name.replace(" ", "_")
-    dest_dir = config.APPLY_WORKER_DIR / "current"
+    dest_dir = upload_dir if upload_dir else (config.APPLY_WORKER_DIR / "current")
     dest_dir.mkdir(parents=True, exist_ok=True)
     upload_pdf = dest_dir / f"{name_slug}_Resume.pdf"
     shutil.copy(str(src_pdf), str(upload_pdf))
@@ -446,16 +447,17 @@ If something unexpected happens and these instructions don't cover it, figure it
    5b. Check for popups. Run browser_tabs action "list". If a new tab/window appeared (login popup), switch to it with browser_tabs action "select". Check the URL there too -- if it's SSO -> RESULT:FAILED:sso_required.
    5c. Regular login form (employer's own site)?
        Attempt 1: sign in with {personal['email']} / {personal.get('password', '')}
-       Attempt 2: sign in with {personal['email']} / {personal.get('password2', personal.get('password', ''))}
-       Attempt 3: create new account with {personal['email']} / {personal.get('password', '')}
+       Attempt 2: if Attempt 1 fails -> sign in with {personal['email']} / {personal.get('password2', personal.get('password', ''))}
+       Attempt 3: if Attempt 2 fails -> create new account with {personal['email']} / {personal.get('password', '')}
        - If password too short -> use {personal.get('password2', personal.get('password', ''))}
+       - After account creation: IMMEDIATELY use search_emails to check for a verification/confirm email (subject: "verify", "confirm", "activate"). If found, read_email to get the link, browser_navigate to it, then sign in. Workday ALWAYS sends a verification email — if you skip this step, login will loop forever.
        Attempt 4: "email already exists" -> click Forgot Password -> enter {personal['email']} -> use search_emails + read_email to get reset link -> set new password to {personal.get('password2', personal.get('password', ''))} -> sign in with it
        Do NOT loop more than 5 total attempts combined.
    5d. After EVERY sign in, sign up, or reset click: run CAPTCHA DETECT. If found, solve it then retry.
-   5e. Need email verification? Use search_emails + read_email to get the code. Enter it and continue.
+   5e. Need email verification / OTP code? Use search_emails + read_email to get the code or link. Enter it and continue.
    5f. After successful login: run browser_tabs action "list". Switch back to application tab if needed.
    5g. All attempts failed? Output RESULT:FAILED:login_issue. Do not loop.
-6. Upload resume. ALWAYS upload fresh -- delete any existing resume first, then browser_file_upload with the PDF path above. This is the tailored resume for THIS job. Non-negotiable.
+6. Upload resume. ALWAYS upload fresh -- delete any existing resume first, then browser_file_upload with the PDF path listed in == FILES == above. That path is definitive — do NOT run Bash to find or verify it. If the upload fails: click the Select file button again, then retry browser_file_upload with the same path. Max 3 attempts total.
 
 == PHOTO vs RESUME UPLOAD ==
 Some forms have both a profile photo upload AND a resume upload.
@@ -487,10 +489,15 @@ RULE: If you see a file upload field:
 9. Answer screening questions using the rules above.
 10. {submit_instruction}
 11. After submit: Run CAPTCHA DETECT -- submit buttons often trigger invisible CAPTCHAs. If found, solve it (the form will auto-submit once the token clears, or you may need to click Submit again). Then check for new tabs (browser_tabs action: "list"). Switch to newest, close old. Snapshot to confirm submission. Look for "thank you" or "application received".
-12. Output your result.
+12. Output your result. CRITICAL: after confirming submission you MUST output the QA lines then the RESULT code as your very next text. Do NOT write a summary paragraph. Do NOT write "The application has been submitted" as your final line. The RESULT code IS your confirmation — nothing else.
 
 == RESULT CODES (output EXACTLY one) ==
-RESULT:APPLIED:{{final_application_url}} -- submitted successfully this session
+Before your RESULT line, output screening/compliance/eligibility questions ONLY — one per line:
+QA: <exact question text as shown on the form> | <answer you gave>
+Include: yes/no questions, work auth, sponsorship, salary, EEO, compliance, "how did you hear", veteran, disability.
+SKIP: name, email, phone, address, resume upload, LinkedIn URL, free-text essay fields. Those are not screening questions.
+
+RESULT:APPLIED:{{final_application_url}} -- submitted successfully this session  ← YOU MUST OUTPUT THIS. "Successfully submitted" in plain text is NOT enough.
 RESULT:ALREADY_APPLIED -- found an existing application from a previous session, did not resubmit
 RESULT:EXPIRED -- job closed or no longer accepting applications
 RESULT:CAPTCHA -- blocked by unsolvable captcha
@@ -499,9 +506,11 @@ RESULT:FAILED:not_eligible_work_auth -- requires unauthorized work location
 RESULT:FAILED:reason -- any other failure (brief reason)
 
 == BROWSER EFFICIENCY ==
+- NEVER use browser_run_code to fill or modify form fields. It bypasses React/Angular state and crashes on selector errors with no recovery. Use browser_fill_form, browser_click, and browser_select_option only for all form interaction. browser_run_code is READ-ONLY — use it only to extract page data or check state.
+
 - browser_snapshot ONCE per page to understand it. Then use browser_take_screenshot to check results (10x less memory).
 - Only snapshot again when you need element refs to click/fill.
-- Multi-page forms (Workday, Taleo, iCIMS): snapshot each new page, fill all fields, click Next/Continue. Repeat until final review page.
+- Multi-page forms (Workday, Taleo, iCIMS): snapshot each new page, fill all fields, click Next/Continue. Repeat until final review page. On the Review page: click Submit IMMEDIATELY — do NOT pause, do NOT ask the user what to do, do NOT say "I'm ready". You are autonomous. Submit is the only correct action on a Review page.
 - Fill ALL fields in ONE browser_fill_form call. Not one at a time.
 - Keep your thinking SHORT. Don't repeat page structure back.
 - DO NOT scroll to verify fields before submitting. Fill everything, then submit. Only scroll/verify if you receive a validation error — fix only the flagged fields, nothing else.
@@ -511,18 +520,31 @@ RESULT:FAILED:reason -- any other failure (brief reason)
 == FORM TRICKS ==
 - Popup/new window opened? browser_tabs action "list" to see all tabs. browser_tabs action "select" with the tab index to switch. ALWAYS check for new tabs after clicking login/apply/sign-in buttons.
 - "Upload your resume" pre-fill page (Workday, Lever, etc.): This is NOT the application form yet. Click "Select file" or the upload area, then browser_file_upload with the resume PDF path. Wait for parsing to finish. Then click Next/Continue to reach the actual form.
-- File upload not working? Try: (1) browser_click the upload button/area, (2) browser_file_upload with the path. If still failing, look for a hidden file input or a "Select file" link and click that first.
+- File upload not working? Try: (1) browser_click the upload button/area, (2) browser_file_upload with the path. If still failing, look for a hidden file input or a "Select file" link and click that first. NEVER search for the resume path via Bash — the exact path is in the FILES section above. Use it as-is.
+- School/university lookup field shows "No Items" or no matching results? Immediately DELETE that education entry and move on. Do NOT try alternate search terms or abbreviations.
+- "How did you hear about us?" / "How did you find this job?" / "Referral source" dropdowns: open the dropdown, click ANY visible option immediately — do not search, do not scroll, do not look for a specific match. If a sub-menu appears after your selection, click ANY option in it immediately. This field is not tracked — the answer does not matter.
 - Dropdown won't fill? browser_click to open it, then browser_click the option.
 - Checkbox won't check via fill_form? Use browser_click on it instead. Snapshot to verify.
+- Phone country code: ALWAYS set it to "United States (+1)" explicitly — forms default to wrong countries (Afghanistan, etc.).
 - Phone field with country prefix: just type digits {phone_digits}
+- Address city/state/ZIP fields on Workday/ADP: these are comboboxes, NOT free-text. browser_click the field, wait for dropdown, then browser_click the matching option. Typing directly fails validation.
+- After resume autofill (Workday, Greenhouse): ALWAYS verify the Degree field is set — it frequently stays empty even when other education fields fill correctly. Select it manually if blank.
+- Remote work location: if you select "Remote" or "Remote, US", check for a follow-up country/state field and set it to "United States" / your state.
 - Date fields: {datetime.now().strftime('%m/%d/%Y')}
 - Validation errors after submit? Take BOTH snapshot AND screenshot. Snapshot shows text errors, screenshot shows red-highlighted fields. Fix all, retry.
+- Workday "Self Identify" / CC-305 disability page: The Date field ONLY accepts input via the Calendar picker button — direct text entry always fails validation. Click the Calendar button, navigate to the current month if needed, click today's date. The Employee ID field is optional and sometimes auto-fills with the candidate's name — clear it completely before saving.
+- Workday "Autofill with Resume": ALWAYS click this button when it appears — it pre-populates work experience dates which are otherwise very hard to fill manually. If the dialog is slow, wait and retry up to 2 more times. Only fall back to "Apply Manually" if the Autofill button is completely absent. NEVER switch to Apply Manually just because the dialog was confusing.
+- Workday work experience date fields (From / To): Fill dates BEFORE uploading the resume file — uploading changes page state and causes clicks to land on wrong fields. Use the Calendar picker button next to each date field: click the calendar icon, navigate to the correct month/year, click the day. NEVER use JavaScript or browser_evaluate. If "I currently work here" is checked, the To date disappears — do not try to fill it.
 - Honeypot fields (hidden, "leave blank"): skip them.
 - Format-sensitive fields: read the placeholder text, match it exactly.
 
 {captcha_section}
 
+- Iframe form (Greenhouse, Lever embedded): if scroll or fill fails inside an iframe, use browser_evaluate with `document.querySelector('iframe').contentDocument.documentElement.scrollTop += 500` to scroll. For field refs inside iframes, take a snapshot first — refs will include the iframe context.
+- Validation error on same field after 3 attempts? Stop retrying that field. Move on or bail with RESULT:FAILED:form_validation_loop. Looping wastes the entire job budget.
+
 == WHEN TO GIVE UP ==
+- Same validation error on same field after 3 attempts -> RESULT:FAILED:form_validation_loop
 - Same page after 3 attempts with no progress -> RESULT:FAILED:stuck
 - Job is closed/expired/page says "no longer accepting" -> RESULT:EXPIRED
 - Page is broken/500 error/blank -> RESULT:FAILED:page_error

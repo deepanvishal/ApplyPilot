@@ -109,6 +109,48 @@ def close_connection(db_path: Path | str | None = None) -> None:
             conn.close()
 
 
+def emit_worker_event(
+    session_id: str,
+    worker_id: int,
+    event: str,
+    *,
+    turn: int | None = None,
+    ts: str | None = None,
+    delta_ms: int | None = None,
+    job_url: str | None = None,
+    detail: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
+    result_bytes: int | None = None,
+    apply_status: str | None = None,
+    apply_error: str | None = None,
+    total_turns: int | None = None,
+    total_cost_usd: float | None = None,
+    duration_ms: int | None = None,
+) -> None:
+    """Insert one row into worker_events. Fire-and-forget — never raises."""
+    try:
+        if ts is None:
+            ts = datetime.now(timezone.utc).isoformat()
+        conn = get_connection()
+        conn.execute("""
+            INSERT INTO worker_events (
+                session_id, worker_id, turn, ts, delta_ms, event, job_url, detail,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                result_bytes, apply_status, apply_error, total_turns, total_cost_usd, duration_ms
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            session_id, worker_id, turn, ts, delta_ms, event, job_url, detail,
+            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+            result_bytes, apply_status, apply_error, total_turns, total_cost_usd, duration_ms,
+        ))
+        conn.commit()
+    except Exception:
+        pass
+
+
 def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     """Create the full jobs table with all columns from every pipeline stage.
 
@@ -340,6 +382,36 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
         )
     """)
 
+    # Worker event log — per-turn diagnostics (only populated with --diagnose)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS worker_events (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id          TEXT    NOT NULL,
+            worker_id           INTEGER NOT NULL,
+            turn                INTEGER,
+            ts                  TEXT    NOT NULL,
+            delta_ms            INTEGER,
+            event               TEXT    NOT NULL,
+            job_url             TEXT,
+            detail              TEXT,
+            input_tokens        INTEGER,
+            output_tokens       INTEGER,
+            cache_read_tokens   INTEGER,
+            cache_write_tokens  INTEGER,
+            result_bytes        INTEGER,
+            apply_status        TEXT,
+            apply_error         TEXT,
+            total_turns         INTEGER,
+            total_cost_usd      REAL,
+            duration_ms         INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_worker_events_session
+        ON worker_events (session_id, worker_id, turn)
+    """)
+    conn.commit()
+
     # Genie jobs table (separate from main jobs table)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS genie_jobs (
@@ -488,6 +560,8 @@ _ALL_COLUMNS: dict[str, str] = {
     "predicted_expiry": "TEXT",
     "expiry_reason":    "TEXT",
     "expiry_checked_at": "TEXT",
+    # Discovery source — which pipeline found this job
+    "source": "TEXT",
 }
 
 
@@ -745,11 +819,33 @@ def clean_linkedin_urls(conn: sqlite3.Connection | None = None) -> int:
         new_app = _clean_linkedin_url(old_app) if old_app and "linkedin.com/jobs/view/" in old_app else old_app
 
         if new_url != old_url or new_app != old_app:
-            conn.execute(
-                "UPDATE jobs SET url = ?, application_url = ? WHERE url = ?",
-                (new_url, new_app, old_url),
-            )
-            updated += 1
+            try:
+                conn.execute(
+                    "UPDATE jobs SET url = ?, application_url = ? WHERE url = ?",
+                    (new_url, new_app, old_url),
+                )
+                updated += 1
+            except sqlite3.IntegrityError:
+                # Another row already has this canonical URL — delete the lesser one
+                existing = conn.execute(
+                    "SELECT url, apply_status, fit_score FROM jobs WHERE url = ?", (new_url,)
+                ).fetchone()
+                current = conn.execute(
+                    "SELECT url, apply_status, fit_score FROM jobs WHERE url = ?", (old_url,)
+                ).fetchone()
+                # Keep the one with apply_status (applied/failed) or higher fit_score
+                def _rank(r):
+                    status_rank = {"applied": 3, "failed": 2, "in_progress": 1}.get(r["apply_status"] or "", 0)
+                    return (status_rank, r["fit_score"] or 0)
+                if existing and current and _rank(current) > _rank(existing):
+                    conn.execute("DELETE FROM jobs WHERE url = ?", (new_url,))
+                    conn.execute(
+                        "UPDATE jobs SET url = ?, application_url = ? WHERE url = ?",
+                        (new_url, new_app, old_url),
+                    )
+                else:
+                    conn.execute("DELETE FROM jobs WHERE url = ?", (old_url,))
+                updated += 1
 
     conn.commit()
     log.info("clean_linkedin_urls: %d rows updated", updated)
