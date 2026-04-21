@@ -166,6 +166,7 @@ def apply(
     strict: bool = typer.Option(False, "--strict", help="Only apply to jobs whose title contains a strict ML/DS keyword (data scientist, recommendation, etc.)."),
     diagnose: bool = typer.Option(False, "--diagnose", help="Log every turn/tool-call to worker_events table for timing and token analysis."),
     ats_only: bool = typer.Option(False, "--ats-only", help="Only apply to direct ATS jobs (workday, greenhouse, ashby, lever, bamboohr, smartrecruiters, jobvite). Skips LinkedIn/Indeed."),
+    max_days: Optional[int] = typer.Option(None, "--max-days", help="Max age of job posting in days. Choices: 7, 14, 30, 60, 90, or omit for no limit."),
 ) -> None:
     """Launch auto-apply to submit job applications."""
     _bootstrap()
@@ -266,6 +267,7 @@ def apply(
         strict=strict,
         diagnose=diagnose,
         ats_only=ats_only,
+        max_days=max_days,
     )
 
 

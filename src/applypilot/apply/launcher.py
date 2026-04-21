@@ -108,7 +108,7 @@ ATS_ONLY_SITES = (
 
 def acquire_job(target_url: str | None = None, min_score: int = 7,
                 worker_id: int = 0, strict: bool = False,
-                ats_only: bool = False) -> dict | None:
+                ats_only: bool = False, max_days: int | None = None) -> dict | None:
     """Atomically acquire the next job to apply to.
 
     Args:
@@ -166,6 +166,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
                   AND (predicted_expiry IS NULL OR predicted_expiry IN ('active', 'unknown'))
+                  {f"AND (posted_date IS NULL OR posted_date >= date('now', '-{max_days} days'))" if max_days else ""}
                   {site_clause}
                   {url_clauses}
                   {strict_clause}
@@ -846,7 +847,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                 shared_limit: _SharedLimit | None = None,
                 strict: bool = False,
                 session_id: str | None = None,
-                ats_only: bool = False) -> tuple[int, int]:
+                ats_only: bool = False,
+                max_days: int | None = None) -> tuple[int, int]:
     """Run jobs sequentially until limit is reached or queue is empty.
 
     Args:
@@ -891,7 +893,8 @@ def worker_loop(worker_id: int = 0, limit: int = 1,
                      last_action="waiting for job", actions=0)
 
         job = acquire_job(target_url=target_url, min_score=min_score,
-                          worker_id=worker_id, strict=strict, ats_only=ats_only)
+                          worker_id=worker_id, strict=strict, ats_only=ats_only,
+                          max_days=max_days)
         if not job:
             if not continuous:
                 add_event(f"[W{worker_id}] Queue empty")
@@ -1023,7 +1026,7 @@ def main(limit: int = 1, target_url: str | None = None,
          dry_run: bool = False, continuous: bool = False,
          poll_interval: int = 60, workers: int = 1,
          strict: bool = False, diagnose: bool = False,
-         ats_only: bool = False) -> None:
+         ats_only: bool = False, max_days: int | None = None) -> None:
     """Launch the apply pipeline.
 
     Args:
@@ -1113,6 +1116,7 @@ def main(limit: int = 1, target_url: str | None = None,
                     strict=strict,
                     session_id=session_id,
                     ats_only=ats_only,
+                    max_days=max_days,
                 )
             else:
                 # Multi-worker — shared counter so any free worker picks the next job
@@ -1134,6 +1138,7 @@ def main(limit: int = 1, target_url: str | None = None,
                             strict=strict,
                             session_id=session_id,
                             ats_only=ats_only,
+                            max_days=max_days,
                         ): i
                         for i in range(workers)
                     }
