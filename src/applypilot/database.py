@@ -1268,8 +1268,19 @@ def sync_applied_portals() -> dict:
         path = p.path
 
         if "myworkdayjobs.com" in host or "myworkdaysite.com" in host:
-            slug = host.split(".")[0]
-            return ("workday", f"https://{host}", slug)
+            tenant = host.split(".")[0]
+            wdn = host.split(".")[1] if "." in host else "wd5"
+            # Strip locale segment and keep only the first path segment (portal name)
+            path_parts = [
+                p for p in path.strip("/").split("/")
+                if p and not re.match(r"^[a-z]{2}-[a-z]{2}$", p)
+            ]
+            if not path_parts:
+                return None  # bare domain — no portal path, can't derive API URL
+            portal_name = path_parts[0]
+            slug = f"{tenant}|{wdn}|{portal_name}"
+            portal_url = f"https://{host}/{portal_name}"
+            return ("workday", portal_url, slug)
 
         if "greenhouse.io" in host:
             parts = path.strip("/").split("/")

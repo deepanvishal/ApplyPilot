@@ -109,10 +109,14 @@ def promote_genie_jobs_to_jobs() -> int:
 
     rows = conn.execute("""
         SELECT g.id, g.url, g.title, g.company, g.location, g.ats_type,
-               g.apply_url, g.full_description, g.discovered_at
+               g.apply_url, g.full_description, g.discovered_at, g.posted_date
         FROM genie_jobs g
         WHERE g.id > ?
           AND g.url IS NOT NULL AND g.url != ''
+          AND (
+              g.posted_date IS NULL
+              OR g.posted_date >= date('now', '-60 days')
+          )
         ORDER BY g.id
     """, (last_id,)).fetchall()
     log.info("promote_genie: incremental since id=%d (%d new candidates)", last_id, len(rows))

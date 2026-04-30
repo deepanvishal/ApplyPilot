@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -106,6 +106,218 @@ async def get_stats() -> dict:
     except Exception:
         pass
     return stats
+
+
+@app.get("/api/live")
+async def get_live(response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    """Live apply session stats — polled by the mobile Live page."""
+    _bootstrap()
+    from collections import Counter
+    from datetime import datetime as _dt
+    from applypilot.config import APP_DIR, DEFAULTS
+    from applypilot.database import get_connection
+    conn = get_connection()
+    # Force fresh snapshot — cached connection may be in a stale WAL read transaction
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+
+    # Session start — written by launcher when applypilot apply begins
+    session_file = APP_DIR / "session_start.txt"
+    session_start = session_file.read_text().strip() if session_file.exists() else \
+        conn.execute("SELECT datetime('now', '-1 hour')").fetchone()[0]
+
+    # ── Session counts ──────────────────────────────────────────────────────
+    applied_session = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE apply_status = 'applied' AND applied_at >= ?", (session_start,)
+    ).fetchone()[0]
+
+    in_progress_count = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE apply_status = 'in_progress'"
+    ).fetchone()[0]
+
+    already_applied_session = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE apply_status = 'already_applied' AND last_attempted_at >= ?", (session_start,)
+    ).fetchone()[0]
+
+    failed_rows = conn.execute(
+        "SELECT COALESCE(apply_error, 'unknown'), COUNT(*) FROM jobs "
+        "WHERE apply_status = 'failed' AND last_attempted_at >= ? "
+        "GROUP BY apply_error ORDER BY COUNT(*) DESC",
+        (session_start,)
+    ).fetchall()
+    failed_session = sum(r[1] for r in failed_rows)
+    failed_breakdown = {r[0]: r[1] for r in failed_rows}
+
+    # ── All-time totals ─────────────────────────────────────────────────────
+    totals = conn.execute(
+        "SELECT apply_status, COUNT(*) FROM jobs WHERE apply_status IS NOT NULL GROUP BY apply_status"
+    ).fetchall()
+    all_time = {r[0]: r[1] for r in totals}
+
+    # ── ATS stats: session (if ≥10 jobs) else global ───────────────────────
+    def _fetch_ats_stats(where_extra="", extra_params=None):
+        rows = conn.execute(f"""
+            SELECT site, AVG(apply_duration_ms) as avg_ms,
+                   SUM(CASE WHEN apply_status='failed' THEN 1.0 ELSE 0 END)/COUNT(*) as fail_rate,
+                   COUNT(*) as cnt
+            FROM jobs
+            WHERE apply_duration_ms IS NOT NULL AND apply_duration_ms > 0
+              AND apply_status IN ('applied','failed','already_applied')
+              {where_extra}
+            GROUP BY site
+        """, extra_params or []).fetchall()
+        return {r[0]: {"avg_ms": r[1], "fail_rate": r[2], "cnt": r[3]} for r in rows}
+
+    session_ats = _fetch_ats_stats("AND last_attempted_at >= ?", [session_start])
+    global_ats  = _fetch_ats_stats()
+
+    ats_stats: dict = {}
+    for site in set(list(session_ats) + list(global_ats)):
+        s = session_ats.get(site, {})
+        g = global_ats.get(site, {})
+        ats_stats[site] = {**(s if s.get("cnt", 0) >= 10 else g),
+                           "source": "session" if s.get("cnt", 0) >= 10 else "global"}
+
+    # ── Active jobs with progress ───────────────────────────────────────────
+    now_ts = _dt.utcnow()
+    active_rows = conn.execute(
+        "SELECT company, title, site, last_attempted_at FROM jobs WHERE apply_status = 'in_progress'"
+    ).fetchall()
+
+    active_jobs = []
+    for r in active_rows:
+        try:
+            ts = r["last_attempted_at"].replace("+00:00", "").replace("Z", "")
+            elapsed_ms = int((now_ts - _dt.fromisoformat(ts)).total_seconds() * 1000)
+        except Exception:
+            elapsed_ms = 0
+        avg_ms = int(ats_stats.get(r["site"], {}).get("avg_ms") or 300_000)
+        active_jobs.append({
+            "company":    r["company"] or "",
+            "title":      r["title"] or "",
+            "site":       r["site"] or "",
+            "elapsed_ms": max(elapsed_ms, 0),
+            "avg_ms":     max(avg_ms, 1),
+        })
+
+    # ── Session config (written by launcher at startup) ─────────────────────
+    import json as _json
+    cfg_file = APP_DIR / "session_config.json"
+    cfg = _json.loads(cfg_file.read_text()) if cfg_file.exists() else {}
+    min_score  = cfg.get("min_score", 7)
+    max_days   = cfg.get("max_days")
+    strict     = cfg.get("strict", False)
+    ats_only   = cfg.get("ats_only", False)
+    n_workers  = cfg.get("workers", 3)
+
+    # ── Build exact same WHERE clause as launcher ────────────────────────────
+    from applypilot.apply.launcher import _STRICT_KEYWORDS, ATS_ONLY_SITES, _load_blocked
+    max_attempts = DEFAULTS.get("max_apply_attempts", 3)
+
+    blocked_sites, blocked_patterns = _load_blocked()
+
+    q_params: list = [max_attempts, min_score]
+    date_clause   = f"AND (posted_date IS NULL OR posted_date >= date('now', '-{max_days} days'))" if max_days else ""
+    strict_clause = ""
+    if strict:
+        strict_clause = "AND (" + " OR ".join("LOWER(title) LIKE ?" for _ in _STRICT_KEYWORDS) + ")"
+        q_params.extend(f"%{kw}%" for kw in _STRICT_KEYWORDS)
+    ats_clause = ""
+    if ats_only:
+        ph = ",".join("?" * len(ATS_ONLY_SITES))
+        ats_clause = f"AND site IN ({ph})"
+        q_params.extend(ATS_ONLY_SITES)
+    site_block_clause = ""
+    if blocked_sites:
+        ph = ",".join("?" * len(blocked_sites))
+        site_block_clause = f"AND site NOT IN ({ph})"
+        q_params.extend(blocked_sites)
+    url_block_clause = " ".join("AND url NOT LIKE ?" for _ in blocked_patterns)
+    q_params.extend(blocked_patterns)
+
+    base_where = f"""
+        WHERE tailored_resume_path IS NOT NULL
+          AND (apply_status IS NULL OR apply_status = 'failed')
+          AND (apply_attempts IS NULL OR apply_attempts < ?)
+          AND fit_score >= ?
+          {date_clause}
+          {strict_clause}
+          {ats_clause}
+          {site_block_clause}
+          {url_block_clause}
+    """
+
+    queue_agg = conn.execute(
+        f"SELECT site, fit_score, COUNT(*) as cnt FROM jobs {base_where} GROUP BY site, fit_score",
+        q_params
+    ).fetchall()
+
+    total_queue = sum(r["cnt"] for r in queue_agg)
+    by_score: Counter = Counter()
+    by_ats:   Counter = Counter()
+    for r in queue_agg:
+        by_score[r["fit_score"]] += r["cnt"]
+        by_ats[r["site"]]        += r["cnt"]
+
+    # Fetch more than 10 so we can deduplicate by (company, title)
+    next_jobs_raw = conn.execute(
+        f"""SELECT company, title, site, fit_score FROM jobs {base_where}
+            ORDER BY
+                CASE WHEN optimizer_rank > 0 THEN optimizer_rank ELSE 999999 END ASC,
+                fit_score DESC,
+                CASE WHEN embedding_score IS NOT NULL THEN embedding_score ELSE 0 END DESC,
+                discovered_at DESC
+            LIMIT 50""",
+        q_params
+    ).fetchall()
+
+    # Exclude company+title already in active_jobs, then deduplicate
+    active_keys = {(j["company"], j["title"]) for j in active_jobs}
+    seen: set = set()
+    next_jobs_rows = []
+    for r in next_jobs_raw:
+        key = (r["company"] or "", r["title"] or "")
+        if key in active_keys or key in seen:
+            continue
+        seen.add(key)
+        next_jobs_rows.append(r)
+        if len(next_jobs_rows) == 10:
+            break
+
+    # ── ETA ──────────────────────────────────────────────────────────────────
+    total_seq_ms = sum(
+        count * (ats_stats.get(site, {}).get("avg_ms") or 300_000)
+        for site, count in by_ats.items()
+    )
+    estimated_seconds = int(total_seq_ms / 1000 / max(n_workers, 1))
+
+    return {
+        "today": {
+            "applied":         applied_session,
+            "failed":          failed_session,
+            "already_applied": already_applied_session,
+            "in_progress":     in_progress_count,
+            "failed_reasons":  failed_breakdown,
+        },
+        "all_time": all_time,
+        "session_start": session_start,
+        "as_of": conn.execute("SELECT datetime('now')").fetchone()[0],
+        "active_jobs": active_jobs,
+        "queue": {
+            "total": total_queue,
+            "by_score": [{"score": k, "count": v} for k, v in sorted(by_score.items(), reverse=True)],
+            "by_ats":   [{"site": k, "count": v} for k, v in sorted(by_ats.items(), key=lambda x: -x[1])],
+            "next_jobs": [
+                {"company": r["company"] or "", "title": r["title"] or "",
+                 "site": r["site"] or "", "score": r["fit_score"]}
+                for r in next_jobs_rows
+            ],
+        },
+        "estimated_seconds": estimated_seconds,
+    }
 
 
 @app.get("/api/sites")

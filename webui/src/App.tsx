@@ -2,17 +2,19 @@ import { useState } from 'react'
 import Cockpit from './pages/Cockpit'
 import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
+import Live from './pages/Live'
 import Models from './pages/Models'
 import Profile from './pages/Profile'
 import Signals from './pages/Signals'
 import Doctor from './pages/Doctor'
 
-type Page = 'cockpit' | 'dashboard' | 'jobs' | 'signals' | 'doctor' | 'profile' | 'models'
+type Page = 'cockpit' | 'dashboard' | 'jobs' | 'live' | 'signals' | 'doctor' | 'profile' | 'models'
 
 const NAV: { id: Page; label: string; icon: string; group?: string }[] = [
   { id: 'cockpit',   label: 'Cockpit',   icon: '🎛️',  group: 'main' },
   { id: 'dashboard', label: 'Dashboard', icon: '📊',  group: 'main' },
   { id: 'jobs',      label: 'Jobs',      icon: '💼',  group: 'main' },
+  { id: 'live',      label: 'Live',      icon: '📲',  group: 'main' },
   { id: 'models',    label: 'Models',    icon: '🧠',  group: 'main' },
   { id: 'signals',   label: 'Signals',   icon: '📡',  group: 'tools' },
   { id: 'doctor',    label: 'Doctor',    icon: '🩺',  group: 'tools' },
@@ -60,6 +62,7 @@ export default function App() {
         {page === 'cockpit'   && <Cockpit />}
         {page === 'dashboard' && <Dashboard />}
         {page === 'jobs'      && <Jobs />}
+        {page === 'live'      && <Live />}
         {page === 'models'    && <Models />}
         {page === 'signals'   && <Signals />}
         {page === 'doctor'    && <Doctor />}

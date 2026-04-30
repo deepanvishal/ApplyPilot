@@ -58,6 +58,8 @@ def derive_api_url(portal_url: str) -> tuple[str, str, str, str]:
     subdomain = netloc.split(".")[0]
     # Skip the locale segment (en-US, en-GB, etc.) if present
     path_parts = [p for p in parts[1:] if p and not re.match(r"^[a-z]{2}-[A-Z]{2}$", p)]
+    if not path_parts:
+        raise ValueError(f"Could not extract portal path from Workday URL: {portal_url!r}")
     site_path = "/".join(path_parts)
     api_url = f"https://{netloc}/wday/cxs/{subdomain}/{site_path}/jobs"
     return api_url, netloc, subdomain, site_path

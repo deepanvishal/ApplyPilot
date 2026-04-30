@@ -10,6 +10,7 @@ search configuration YAML (searches.yaml) rather than being hardcoded.
 import logging
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from jobspy import scrape_jobs
@@ -179,9 +180,6 @@ def store_jobspy_results(conn: sqlite3.Connection, df, source_label: str) -> tup
         # Extract apply URL if JobSpy provided it
         _raw_direct = str(row.get("job_url_direct", ""))
         apply_url = None if _raw_direct in ("nan", "None", "", "none") else _raw_direct
-        if not apply_url and str(row.get("site", "")) == "linkedin":
-            continue
-
         try:
             from applypilot.utils.job_id import extract_job_id
             conn.execute(
@@ -384,6 +382,7 @@ def _full_crawl(
     hours_old: int = 168,
     proxy: str | None = None,
     max_retries: int = 2,
+    workers: int = 4,
 ) -> dict:
     """Run all search queries from search config across all locations."""
     if sites is None:
@@ -425,20 +424,30 @@ def _full_crawl(
     total_errors = 0
     completed = 0
 
-    for s in searches:
-        result = _run_one_search(
-            s, sites, results_per_site, hours_old,
-            proxy_config, defaults, max_retries,
-            accept_locs, reject_locs, glassdoor_map,
-        )
-        completed += 1
-        total_new += result["new"]
-        total_existing += result["existing"]
-        total_errors += result["errors"]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _run_one_search,
+                s, sites, results_per_site, hours_old,
+                proxy_config, defaults, max_retries,
+                accept_locs, reject_locs, glassdoor_map,
+            ): s
+            for s in searches
+        }
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+            except Exception as e:
+                log.error("Search failed: %s", e)
+                result = {"new": 0, "existing": 0, "errors": 1}
+            completed += 1
+            total_new += result["new"]
+            total_existing += result["existing"]
+            total_errors += result["errors"]
 
-        if completed % 5 == 0 or completed == len(searches):
-            log.info("Progress: %d/%d queries done (%d new, %d dupes, %d errors)",
-                     completed, len(searches), total_new, total_existing, total_errors)
+            if completed % 5 == 0 or completed == len(searches):
+                log.info("Progress: %d/%d queries done (%d new, %d dupes, %d errors)",
+                         completed, len(searches), total_new, total_existing, total_errors)
 
     # Final stats
     conn = get_connection()
@@ -458,7 +467,7 @@ def _full_crawl(
 
 # -- Public entry point ------------------------------------------------------
 
-def run_discovery(cfg: dict | None = None) -> dict:
+def run_discovery(cfg: dict | None = None, workers: int = 4) -> dict:
     """Main entry point for JobSpy-based job discovery.
 
     Loads search queries and locations from the user's search config YAML,
@@ -485,6 +494,8 @@ def run_discovery(cfg: dict | None = None) -> dict:
     tiers = cfg.get("tiers")
     locations = cfg.get("location_labels")
 
+    workers = cfg.get("defaults", {}).get("workers", workers)
+
     return _full_crawl(
         search_cfg=cfg,
         tiers=tiers,
@@ -493,4 +504,5 @@ def run_discovery(cfg: dict | None = None) -> dict:
         results_per_site=results_per_site,
         hours_old=hours_old,
         proxy=proxy,
+        workers=workers,
     )

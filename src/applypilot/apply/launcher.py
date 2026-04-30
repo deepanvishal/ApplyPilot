@@ -165,7 +165,6 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
-                  AND (predicted_expiry IS NULL OR predicted_expiry IN ('active', 'unknown'))
                   {f"AND (posted_date IS NULL OR posted_date >= date('now', '-{max_days} days'))" if max_days else ""}
                   {site_clause}
                   {url_clauses}
@@ -1064,6 +1063,18 @@ def main(limit: int = 1, target_url: str | None = None,
     worker_label = f"{workers} worker{'s' if workers > 1 else ''}"
     console.print(f"Launching apply pipeline ({mode_label}, {worker_label}, poll every {POLL_INTERVAL}s)...")
     console.print("[dim]Ctrl+C = skip current job(s) | Ctrl+C x2 = stop[/dim]")
+
+    # Write session start + params for Live page filtering
+    import json as _json
+    from datetime import datetime as _dt
+    (config.APP_DIR / "session_start.txt").write_text(_dt.utcnow().isoformat())
+    (config.APP_DIR / "session_config.json").write_text(_json.dumps({
+        "min_score": min_score,
+        "max_days":  max_days,
+        "strict":    strict,
+        "ats_only":  ats_only,
+        "workers":   workers,
+    }))
 
     # Double Ctrl+C handler
     _ctrl_c_count = 0

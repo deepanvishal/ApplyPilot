@@ -548,8 +548,8 @@ def run_discover(
     from applypilot.discovery.jobspy import run_discovery
     result = run_discovery()
     console.print("\n[bold]JobSpy Discovery Complete[/bold]")
-    console.print(f"  Inserted: {result.get('inserted', 0)}")
-    console.print(f"  Skipped:  {result.get('skipped', 0)}")
+    console.print(f"  Inserted: {result.get('new', result.get('inserted', 0))}")
+    console.print(f"  Skipped:  {result.get('existing', result.get('skipped', 0))}")
     console.print(f"  Errors:   {result.get('errors', 0)}\n")
 
 
