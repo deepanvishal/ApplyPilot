@@ -35,6 +35,8 @@ COMPANY_BLOCKLIST: list[str] = [
     "%openai%",
     "%roblox%",
     "%usaa%",
+    "%serko%",
+    "%niagara%bottling%",
 ]
 
 # URL patterns — matched against lower(url) and lower(application_url).
