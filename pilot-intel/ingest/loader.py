@@ -24,7 +24,10 @@ _SELECT_FIELDS = """
 _BASE_WHERE = "full_description IS NOT NULL AND TRIM(full_description) != ''"
 
 
-def load_jobs_for_ingestion(last_ingested_at: str | None = None) -> list[dict]:
+def load_jobs_for_ingestion(
+    last_ingested_at: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
     uri = f"file:{config.APPLYPILOT_DB}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
@@ -34,9 +37,11 @@ def load_jobs_for_ingestion(last_ingested_at: str | None = None) -> list[dict]:
         if last_ingested_at:
             where += " AND discovered_at > ?"
             params = (last_ingested_at,)
-        rows = conn.execute(
-            f"SELECT {_SELECT_FIELDS} FROM jobs WHERE {where}", params
-        ).fetchall()
+        sql = f"SELECT {_SELECT_FIELDS} FROM jobs WHERE {where}"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = params + (limit,)
+        rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()

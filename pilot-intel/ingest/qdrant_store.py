@@ -79,21 +79,21 @@ def upsert_jobs(
             )
         )
 
+    from tqdm import tqdm
     upserted = 0
-    for start in range(0, len(points), _UPSERT_BATCH):
+    for start in tqdm(range(0, len(points), _UPSERT_BATCH), desc="Upserting to Qdrant", unit="batch"):
         batch = points[start : start + _UPSERT_BATCH]
         client.upsert(collection_name=_COLLECTION, points=batch)
         upserted += len(batch)
-        logger.info("Upserted %d / %d points", upserted, len(points))
 
     return upserted
 
 
-def ingest_from_db(incremental: bool = True) -> dict:
+def ingest_from_db(incremental: bool = True, limit: int | None = None) -> dict:
     t0 = time.monotonic()
 
     last_ingested_at = get_last_ingested_at() if incremental else None
-    jobs = load_jobs_for_ingestion(last_ingested_at)
+    jobs = load_jobs_for_ingestion(last_ingested_at, limit=limit)
 
     if not jobs:
         logger.info("No new jobs to ingest.")

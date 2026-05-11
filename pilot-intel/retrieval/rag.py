@@ -25,10 +25,19 @@ logger = logging.getLogger(__name__)
 _COLLECTION = "job_descriptions"
 _BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 _device = "cuda" if torch.cuda.is_available() else "cpu"
+if _device == "cpu":
+    logger.warning("CUDA not available — falling back to CPU. Reranking will be slow.")
+
+if torch.cuda.is_available():
+    torch.cuda.set_device(0)
+    logger.info("Using GPU: %s", torch.cuda.get_device_name(0))
 
 logger.info("Loading reranker %s on %s...", config.RERANKER_MODEL, _device)
 _reranker: CrossEncoder = CrossEncoder(config.RERANKER_MODEL, device=_device)
 logger.info("Reranker loaded.")
+if _device == "cuda":
+    allocated = torch.cuda.memory_allocated() / 1024**3
+    logger.info("GPU VRAM used after reranker load: %.2fGB", allocated)
 
 # ---------------------------------------------------------------------------
 # Filter builder

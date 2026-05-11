@@ -28,6 +28,7 @@ PILOT_INTEL_DIR: Path = Path(
 
 QDRANT_PATH: Path = PILOT_INTEL_DIR / "qdrant"
 CACHE_PATH: Path = PILOT_INTEL_DIR / "cache.db"
+LOG_DIR: Path = PILOT_INTEL_DIR / "logs"
 
 # --- Model constants ---
 
@@ -53,6 +54,7 @@ QDRANT_URL: str | None = os.getenv("QDRANT_URL")
 def ensure_dirs() -> None:
     PILOT_INTEL_DIR.mkdir(parents=True, exist_ok=True)
     QDRANT_PATH.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def validate_applypilot_db() -> None:

@@ -9,6 +9,7 @@ from rich.table import Table
 
 import cache.query_cache as query_cache
 import config
+from logging_config import setup_logging
 
 app = typer.Typer(help="pilot-intel — job search analytics agent")
 console = Console()
@@ -24,19 +25,21 @@ query_cache.init_cache()
 def ingest(
     incremental: bool = typer.Option(True, "--incremental/--full"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    limit: Optional[int] = typer.Option(None, help="Limit jobs for testing"),
 ) -> None:
     """Embed job descriptions into Qdrant. Use --full to re-ingest everything."""
+    setup_logging("ingest")
     if dry_run:
         from ingest.loader import load_jobs_for_ingestion, get_last_ingested_at
         last = get_last_ingested_at() if incremental else None
-        jobs = load_jobs_for_ingestion(last)
+        jobs = load_jobs_for_ingestion(last, limit=limit)
         console.print(f"[bold]Dry run:[/bold] {len(jobs)} jobs would be ingested "
                       f"({'incremental' if incremental else 'full'})")
         return
 
     from ingest.qdrant_store import ingest_from_db
     console.print(f"Starting {'incremental' if incremental else 'full'} ingest...")
-    result = ingest_from_db(incremental=incremental)
+    result = ingest_from_db(incremental=incremental, limit=limit)
 
     table = Table(title="Ingest Results")
     table.add_column("Metric", style="cyan")
@@ -56,6 +59,7 @@ def ask(
     question: Optional[str] = typer.Argument(default=None),
 ) -> None:
     """Ask a natural language question about your job search data."""
+    setup_logging("ask")
     # TODO: token-by-token streaming requires LLM streaming support inside nodes
     from agent.graph import run as agent_run
 
@@ -95,6 +99,7 @@ def eval(
     type: str = typer.Option("all", help="ragas | deepeval | langsmith | all"),
 ) -> None:
     """Run evaluation suite against labeled datasets."""
+    setup_logging("eval")
     valid = {"ragas", "deepeval", "langsmith", "all"}
     if type not in valid:
         console.print(f"[red]Unknown eval type '{type}'. Choose from: {', '.join(sorted(valid))}[/red]")
@@ -118,8 +123,11 @@ def eval(
 # ---------------------------------------------------------------------------
 
 @app.command()
-def status() -> None:
+def status(
+    show_logs: bool = typer.Option(False, "--show-logs", help="List last 5 log files"),
+) -> None:
     """Show DB, Qdrant, cache, and config status."""
+    setup_logging("status")
     from ingest.loader import get_db_stats, get_last_ingested_at
     from ingest.qdrant_store import get_collection_stats
 
@@ -165,6 +173,18 @@ def status() -> None:
     cfg_table.add_row("ROUTER_MODEL", config.ROUTER_MODEL)
     cfg_table.add_row("Last ingested", last_ingested or "never")
     console.print(cfg_table)
+
+    if show_logs:
+        logs = sorted(config.LOG_DIR.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
+        log_table = Table(title="Recent Log Files")
+        log_table.add_column("File", style="cyan")
+        log_table.add_column("Size", style="green")
+        if logs:
+            for lf in logs:
+                log_table.add_row(lf.name, f"{lf.stat().st_size / 1024:.1f} KB")
+        else:
+            log_table.add_row("(no logs yet)", "—")
+        console.print(log_table)
 
 
 if __name__ == "__main__":
