@@ -1,0 +1,171 @@
+"""Typer CLI entry point: ingest | ask | eval | status."""
+
+import asyncio
+from typing import Optional
+
+import typer
+from rich.console import Console
+from rich.table import Table
+
+import cache.query_cache as query_cache
+import config
+
+app = typer.Typer(help="pilot-intel — job search analytics agent")
+console = Console()
+
+query_cache.init_cache()
+
+
+# ---------------------------------------------------------------------------
+# ingest
+# ---------------------------------------------------------------------------
+
+@app.command()
+def ingest(
+    incremental: bool = typer.Option(True, "--incremental/--full"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Embed job descriptions into Qdrant. Use --full to re-ingest everything."""
+    if dry_run:
+        from ingest.loader import load_jobs_for_ingestion, get_last_ingested_at
+        last = get_last_ingested_at() if incremental else None
+        jobs = load_jobs_for_ingestion(last)
+        console.print(f"[bold]Dry run:[/bold] {len(jobs)} jobs would be ingested "
+                      f"({'incremental' if incremental else 'full'})")
+        return
+
+    from ingest.qdrant_store import ingest_from_db
+    console.print(f"Starting {'incremental' if incremental else 'full'} ingest...")
+    result = ingest_from_db(incremental=incremental)
+
+    table = Table(title="Ingest Results")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Jobs found", str(result["total"]))
+    table.add_row("Upserted", str(result["upserted"]))
+    table.add_row("Elapsed (s)", str(result["elapsed"]))
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# ask
+# ---------------------------------------------------------------------------
+
+@app.command()
+def ask(
+    question: Optional[str] = typer.Argument(default=None),
+) -> None:
+    """Ask a natural language question about your job search data."""
+    # TODO: token-by-token streaming requires LLM streaming support inside nodes
+    from agent.graph import run as agent_run
+
+    def _answer(q: str) -> None:
+        cached = query_cache.get_cached(q, "", config.LLM_MODEL)
+        if cached:
+            console.print(f"[dim][cached][/dim] {cached}")
+            return
+        console.print("[dim]Thinking...[/dim]")
+        result = asyncio.run(agent_run(q))
+        console.print(result)
+        query_cache.set_cached(q, "", config.LLM_MODEL, result)
+
+    if question:
+        _answer(question)
+        return
+
+    console.print("[bold]pilot-intel REPL[/bold] — type 'exit' or 'quit' to stop")
+    while True:
+        try:
+            q = typer.prompt(">")
+        except (EOFError, KeyboardInterrupt):
+            break
+        if q.strip().lower() in ("exit", "quit"):
+            break
+        if not q.strip():
+            continue
+        _answer(q.strip())
+
+
+# ---------------------------------------------------------------------------
+# eval
+# ---------------------------------------------------------------------------
+
+@app.command()
+def eval(
+    type: str = typer.Option("all", help="ragas | deepeval | langsmith | all"),
+) -> None:
+    """Run evaluation suite against labeled datasets."""
+    valid = {"ragas", "deepeval", "langsmith", "all"}
+    if type not in valid:
+        console.print(f"[red]Unknown eval type '{type}'. Choose from: {', '.join(sorted(valid))}[/red]")
+        raise typer.Exit(1)
+
+    if type in ("ragas", "all"):
+        console.print("Running ragas evaluation...")
+        import eval.ragas_eval  # noqa: F401
+
+    if type in ("deepeval", "all"):
+        console.print("Running deepeval evaluation...")
+        import eval.deepeval_eval  # noqa: F401
+
+    if type in ("langsmith", "all"):
+        console.print("Running langsmith evaluation...")
+        import eval.langsmith_eval  # noqa: F401
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+@app.command()
+def status() -> None:
+    """Show DB, Qdrant, cache, and config status."""
+    from ingest.loader import get_db_stats, get_last_ingested_at
+    from ingest.qdrant_store import get_collection_stats
+
+    db = get_db_stats()
+    qdrant = get_collection_stats()
+    cache = query_cache.cache_stats()
+    last_ingested = get_last_ingested_at()
+
+    db_table = Table(title="ApplyPilot DB")
+    db_table.add_column("Metric", style="cyan")
+    db_table.add_column("Value", style="green")
+    db_table.add_row("Total jobs", str(db["total_jobs"]))
+    db_table.add_row("With description", str(db["jobs_with_description"]))
+    db_table.add_row("Applied", str(db["jobs_applied"]))
+    db_table.add_row("With outcome", str(db["jobs_with_outcome"]))
+    console.print(db_table)
+
+    qdrant_table = Table(title="Qdrant Collection")
+    qdrant_table.add_column("Metric", style="cyan")
+    qdrant_table.add_column("Value", style="green")
+    if "error" in qdrant:
+        qdrant_table.add_row("Error", qdrant["error"])
+    else:
+        qdrant_table.add_row("Vectors", str(qdrant.get("vectors_count")))
+        qdrant_table.add_row("Indexed", str(qdrant.get("indexed_vectors_count")))
+        qdrant_table.add_row("Status", str(qdrant.get("status")))
+    console.print(qdrant_table)
+
+    cache_table = Table(title="Query Cache")
+    cache_table.add_column("Metric", style="cyan")
+    cache_table.add_column("Value", style="green")
+    cache_table.add_row("Total cached", str(cache["total_cached"]))
+    cache_table.add_row("Oldest entry", str(cache["oldest_entry"] or "—"))
+    cache_table.add_row("Newest entry", str(cache["newest_entry"] or "—"))
+    console.print(cache_table)
+
+    cfg_table = Table(title="Config")
+    cfg_table.add_column("Key", style="cyan")
+    cfg_table.add_column("Value", style="green")
+    cfg_table.add_row("APPLYPILOT_DB", str(config.APPLYPILOT_DB))
+    cfg_table.add_row("LLM_URL", config.LLM_URL)
+    cfg_table.add_row("LLM_MODEL", config.LLM_MODEL)
+    cfg_table.add_row("ROUTER_MODEL", config.ROUTER_MODEL)
+    cfg_table.add_row("Last ingested", last_ingested or "never")
+    console.print(cfg_table)
+
+
+if __name__ == "__main__":
+    app()
