@@ -1,4 +1,9 @@
-"""RAG node: Qdrant hybrid search with reranker, no LLM call."""
+"""RAG node: hybrid child search → parent context retrieval → rerank. No LLM call.
+
+Each result in rag_results: {job_url, company, title, outcome, fit_score,
+apply_status, site, context (concatenated parent texts), reranker_score,
+matched_children}
+"""
 
 import logging
 

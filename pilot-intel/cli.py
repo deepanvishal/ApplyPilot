@@ -1,7 +1,11 @@
 """Typer CLI entry point: ingest | ask | eval | status."""
 
 import asyncio
+import sys
+from pathlib import Path
 from typing import Optional
+
+sys.path.insert(0, str(Path(__file__).parent))
 
 import typer
 from rich.console import Console
@@ -44,8 +48,10 @@ def ingest(
     table = Table(title="Ingest Results")
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
-    table.add_row("Jobs found", str(result["total"]))
-    table.add_row("Upserted", str(result["upserted"]))
+    table.add_row("Jobs processed", str(result["jobs_processed"]))
+    table.add_row("Children created", str(result["total_children"]))
+    table.add_row("Added", str(result["num_added"]))
+    table.add_row("Skipped", str(result["num_skipped"]))
     table.add_row("Elapsed (s)", str(result["elapsed"]))
     console.print(table)
 
@@ -173,6 +179,18 @@ def status(
     cfg_table.add_row("ROUTER_MODEL", config.ROUTER_MODEL)
     cfg_table.add_row("Last ingested", last_ingested or "never")
     console.print(cfg_table)
+
+    from ingest.record_manager import get_record_manager_stats
+    rm_stats = get_record_manager_stats()
+    rm_table = Table(title="Record Manager")
+    rm_table.add_column("Metric", style="cyan")
+    rm_table.add_column("Value", style="green")
+    if "error" in rm_stats:
+        rm_table.add_row("Error", rm_stats["error"])
+    else:
+        rm_table.add_row("Namespace", rm_stats["namespace"])
+        rm_table.add_row("Total indexed docs", str(rm_stats["total_indexed"]))
+    console.print(rm_table)
 
     if show_logs:
         logs = sorted(config.LOG_DIR.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)[:5]

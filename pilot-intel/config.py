@@ -16,6 +16,9 @@ def load_env() -> None:
 
 load_env()
 
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
 # --- Paths ---
 
 APPLYPILOT_DB: Path = Path(
