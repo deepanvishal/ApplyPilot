@@ -18,6 +18,7 @@ class AgentState(TypedDict):
     rag_queries:     Annotated[list[str], add]
     rag_results:     Annotated[list[dict], add]
     expanded_terms:  Annotated[list[str], _keep_last]
+    history:         Annotated[list[dict], _keep_last]
     summary:         Annotated[str, _keep_last]
     synthesis:       Annotated[str, _keep_last]
     reflection:      Annotated[str, _keep_last]

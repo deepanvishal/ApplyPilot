@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import sys
 import time
@@ -16,6 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# pilot-intel path — added lazily inside endpoints to avoid startup cost
+# ---------------------------------------------------------------------------
+
+_PILOT_INTEL_PATH = Path(__file__).parent.parent.parent / "pilot-intel"
+if _PILOT_INTEL_PATH.exists() and str(_PILOT_INTEL_PATH) not in sys.path:
+    sys.path.insert(0, str(_PILOT_INTEL_PATH))
 
 app = FastAPI(title="ApplyPilot WebUI", version="1.0.0")
 
@@ -1215,6 +1224,140 @@ async def jobs_by_segment(
         reverse=True,
     )
     return {"segments": segments}
+
+
+# ---------------------------------------------------------------------------
+# pilot-intel warm-up (pre-load BGE-M3 + reranker)
+# ---------------------------------------------------------------------------
+
+_warmup_state: str = "cold"  # cold | warming | ready | error
+_pilot_cache_ready: bool = False
+
+
+@app.get("/api/pilot-intel/warmup")
+async def pilot_intel_warmup() -> dict:
+    """Pre-load BGE-M3 + reranker in background so the first chat isn't slow."""
+    global _warmup_state
+    if _warmup_state in ("warming", "ready"):
+        return {"status": _warmup_state}
+
+    _warmup_state = "warming"
+
+    def _load_models() -> None:
+        import retrieval.rag  # noqa: F401 — triggers BGEM3FlagModel + CrossEncoder load
+
+    async def _run():
+        global _warmup_state
+        try:
+            await asyncio.to_thread(_load_models)
+            _warmup_state = "ready"
+        except Exception as exc:
+            _warmup_state = "error"
+
+    asyncio.create_task(_run())
+    return {"status": "warming"}
+
+
+# ---------------------------------------------------------------------------
+# pilot-intel chat (streaming SSE)
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    question: str
+    history: list[dict] = []
+
+
+@app.post("/api/pilot-intel/chat")
+async def pilot_intel_chat(req: ChatRequest) -> StreamingResponse:
+    """Stream pilot-intel answer tokens via SSE as they arrive from the Anthropic API."""
+
+    async def generate():
+        global _pilot_cache_ready
+        try:
+            from agent.graph import supervisor_graph
+            from agent.state import AgentState
+            from agent.llm_client import _token_queue
+            import config as _pi_config
+            from cache.query_cache import get_cached, set_cached, init_cache
+
+            if not _pilot_cache_ready:
+                init_cache()
+                _pilot_cache_ready = True
+
+            # Serve from cache for context-free questions (history invalidates cached answers)
+            if not req.history:
+                cached = get_cached(req.question, "", _pi_config.LLM_MODEL)
+                if cached:
+                    encoded = cached.replace("\n", "\\n").replace("\r", "")
+                    yield f"data: __FINAL__:{encoded}\n\n"
+                    yield "data: __DONE__\n\n"
+                    return
+
+            # Per-request queue: answer node pushes tokens here; None = sentinel
+            q: asyncio.Queue[str | None] = asyncio.Queue()
+            ctx_token = _token_queue.set(q)
+
+            initial_state: AgentState = {
+                "question": req.question,
+                "question_type": "",
+                "scope": "",
+                "qdrant_filter": {},
+                "sql_queries": [],
+                "sql_results": [],
+                "rag_queries": [],
+                "rag_results": [],
+                "expanded_terms": [],
+                "history": req.history,
+                "followup_target": "",
+                "summary": "",
+                "synthesis": "",
+                "reflection": "",
+                "iterations": 0,
+                "final_answer": "",
+                "langsmith_trace": "",
+            }
+
+            # Run graph in background; signal completion via queue sentinel
+            graph_task = asyncio.create_task(supervisor_graph.ainvoke(initial_state))
+            graph_task.add_done_callback(lambda _: q.put_nowait(None))
+
+            # Forward tokens to SSE as they arrive from the answer node
+            while True:
+                item = await q.get()
+                if item is None:
+                    break
+                safe = item.replace("\n", "\\n").replace("\r", "")
+                if safe:
+                    yield f"data: {safe}\n\n"
+
+            _token_queue.reset(ctx_token)
+
+            # Await graph completion and send authoritative final answer
+            final_state = await graph_task
+            final_answer = (
+                final_state.get("final_answer", "")
+                if isinstance(final_state, dict)
+                else ""
+            )
+            if final_answer:
+                encoded = final_answer.replace("\n", "\\n").replace("\r", "")
+                yield f"data: __FINAL__:{encoded}\n\n"
+                if not req.history:
+                    set_cached(req.question, "", _pi_config.LLM_MODEL, final_answer)
+
+            yield "data: __DONE__\n\n"
+
+        except Exception as e:
+            yield f"data: __ERROR__:{str(e)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

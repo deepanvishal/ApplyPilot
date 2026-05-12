@@ -354,6 +354,12 @@ def _fix_known_errors(sql: str) -> str:
         )
         logger.warning("Auto-added missing FROM jobs clause to SQL")
 
+    # Fix 3: multiple statements — SQLite only executes one at a time
+    stmts = [s.strip() for s in sql.split(";") if s.strip()]
+    if len(stmts) > 1:
+        logger.warning("Trimmed %d extra SQL statement(s) — kept first only", len(stmts) - 1)
+        sql = stmts[0]
+
     return sql
 
 

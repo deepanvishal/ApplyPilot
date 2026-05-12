@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import PilotChat from './components/PilotChat'
 import Cockpit from './pages/Cockpit'
 import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
@@ -68,6 +69,7 @@ export default function App() {
         {page === 'doctor'    && <Doctor />}
         {page === 'profile'   && <Profile />}
       </main>
+      <PilotChat />
     </div>
   )
 }

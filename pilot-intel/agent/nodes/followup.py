@@ -29,6 +29,7 @@ async def followup(state: AgentState) -> dict:
                 {"role": "system", "content": prompts.FOLLOWUP_SYSTEM},
                 {"role": "user", "content": user_content},
             ],
+            skip_context=True,
         )
         parsed = json.loads(strip_fences(content))
         followup_type = parsed.get("type", "rag")

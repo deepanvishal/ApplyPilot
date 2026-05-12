@@ -29,6 +29,7 @@ async def term_expander(state: AgentState) -> dict:
                 {"role": "system", "content": prompts.TERM_EXPANDER_SYSTEM},
                 {"role": "user", "content": state["question"]},
             ],
+            skip_context=True,
         )
         terms = json.loads(strip_fences(content))
         expanded_terms = terms if isinstance(terms, list) else []

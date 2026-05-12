@@ -1,13 +1,40 @@
 """Backend-agnostic LLM client. Nodes call chat() — no knowledge of backend."""
 
+import asyncio
+import contextvars
 import logging
 import re
+from pathlib import Path
 
 import httpx
 
 import config
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Token streaming queue — set per-request by the server endpoint.
+# Only the answer node reads from this queue (is_answer=True).
+# ContextVar makes it safe for concurrent requests.
+# ---------------------------------------------------------------------------
+
+_token_queue: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar(
+    "_token_queue", default=None
+)
+
+# ---------------------------------------------------------------------------
+# Persistent context — injected into every system prompt
+# ---------------------------------------------------------------------------
+
+def _load_context() -> str:
+    context_path = Path(__file__).parent.parent / "CONTEXT.md"
+    if context_path.exists():
+        return context_path.read_text(encoding="utf-8")
+    return ""
+
+
+_CONTEXT: str = _load_context()
+_context_logged: bool = False
 
 
 def strip_fences(text: str) -> str:
@@ -23,9 +50,27 @@ async def chat(
     messages: list[dict],
     model: str | None = None,
     is_router: bool = False,
+    is_answer: bool = False,
+    skip_context: bool = False,
 ) -> str:
+    global _context_logged
+    if not _context_logged:
+        if _CONTEXT:
+            logger.info("Context loaded: %d chars from CONTEXT.md", len(_CONTEXT))
+        else:
+            logger.warning("CONTEXT.md not found — proceeding without persistent context")
+        _context_logged = True
+
+    if _CONTEXT and not skip_context:
+        messages = [
+            {**msg, "content": f"{_CONTEXT}\n\n---\n\n{msg['content']}"}
+            if msg["role"] == "system"
+            else msg
+            for msg in messages
+        ]
+
     if config.ANTHROPIC_API_KEY:
-        return await _chat_anthropic(messages, model=model, is_router=is_router)
+        return await _chat_anthropic(messages, model=model, is_router=is_router, is_answer=is_answer)
     return await _chat_ollama(messages, is_router=is_router)
 
 
@@ -34,6 +79,7 @@ async def _chat_anthropic(
     *,
     model: str | None,
     is_router: bool,
+    is_answer: bool,
 ) -> str:
     import anthropic
 
@@ -50,14 +96,31 @@ async def _chat_anthropic(
             non_system.append(msg)
 
     client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
+    kwargs: dict = dict(
+        model=resolved_model,
+        max_tokens=1024,
+        messages=non_system,
+    )
+    if system_content:
+        kwargs["system"] = system_content
+
+    q = _token_queue.get()
+
+    if q is not None and is_answer:
+        # True streaming — push each token into the queue, return full text
+        full_text = ""
+        try:
+            async with client.messages.stream(**kwargs) as stream:
+                async for token in stream.text_stream:
+                    full_text += token
+                    await q.put(token)
+        except anthropic.APIError as e:
+            logger.error("Anthropic stream error (model=%s): %s", resolved_model, e)
+            raise
+        logger.info("[answer] streamed %d chars via token queue", len(full_text))
+        return full_text
+
     try:
-        kwargs: dict = dict(
-            model=resolved_model,
-            max_tokens=1024,
-            messages=non_system,
-        )
-        if system_content:
-            kwargs["system"] = system_content
         response = await client.messages.create(**kwargs)
         return response.content[0].text
     except anthropic.APIError as e:

@@ -37,6 +37,7 @@ async def reflector(state: AgentState) -> dict:
                 {"role": "system", "content": prompts.REFLECTOR_SYSTEM},
                 {"role": "user", "content": user_content},
             ],
+            skip_context=True,
         )
         parsed = json.loads(strip_fences(content))
         complete = parsed.get("complete", True)

@@ -48,6 +48,7 @@ async def run(question: str) -> str:
         "rag_queries": [],
         "rag_results": [],
         "expanded_terms": [],
+        "history": [],
         "followup_target": "",
         "summary": "",
         "synthesis": "",

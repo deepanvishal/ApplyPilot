@@ -31,6 +31,7 @@ async def router(state: AgentState) -> dict:
                 {"role": "user", "content": user_content},
             ],
             is_router=True,
+            skip_context=True,
         )
         text = strip_fences(content)
         try:

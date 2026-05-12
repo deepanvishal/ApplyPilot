@@ -22,12 +22,16 @@ async def answer(state: AgentState) -> dict:
         f"Findings:\n{state.get('synthesis', '')}"
     )
 
+    history = state.get("history") or []
+
     try:
         text = await chat(
             messages=[
                 {"role": "system", "content": prompts.ANSWER_SYSTEM},
+                *history,
                 {"role": "user", "content": user_content},
             ],
+            is_answer=True,
         )
         final_answer = text
         logger.info("[answer] answer length: %d chars", len(final_answer))
