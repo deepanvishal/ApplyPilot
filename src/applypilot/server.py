@@ -12,7 +12,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from fastapi import FastAPI, HTTPException, Query, Response
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1252,10 +1256,22 @@ async def pilot_intel_warmup() -> dict:
             await asyncio.to_thread(_load_models)
             _warmup_state = "ready"
         except Exception as exc:
+            logger.warning("pilot-intel warmup failed: %s", exc)
             _warmup_state = "error"
 
     asyncio.create_task(_run())
     return {"status": "warming"}
+
+
+@app.get("/api/pilot-intel/cache-stats")
+async def pilot_intel_cache_stats() -> dict:
+    """Return pilot-intel query cache statistics."""
+    from cache.query_cache import cache_stats, init_cache
+    global _pilot_cache_ready
+    if not _pilot_cache_ready:
+        init_cache()
+        _pilot_cache_ready = True
+    return cache_stats()
 
 
 # ---------------------------------------------------------------------------

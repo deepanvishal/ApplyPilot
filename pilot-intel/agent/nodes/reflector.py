@@ -20,9 +20,15 @@ async def reflector(state: AgentState) -> dict:
 
     iterations = state.get("iterations", 0)
 
-    if iterations >= 3:
+    if iterations >= 1:
         logger.info("[reflector] iteration limit reached — forcing complete")
-        output = {"reflection": "", "iterations": 3}
+        output = {"reflection": "", "iterations": iterations}
+        log_node_output("reflector", output)
+        return output
+
+    if state.get("question_type") == "pure_sql":
+        logger.info("[reflector] pure_sql — skipping reflection")
+        output = {"reflection": "", "iterations": iterations + 1}
         log_node_output("reflector", output)
         return output
 

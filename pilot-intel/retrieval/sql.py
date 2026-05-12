@@ -413,7 +413,8 @@ async def generate_sql(question: str, scope: str = "", previous_error: str = "")
         messages=[
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content},
-        ]
+        ],
+        skip_context=True,
     )
 
     sql = _extract_sql(text)

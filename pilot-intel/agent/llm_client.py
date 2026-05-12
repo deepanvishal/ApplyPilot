@@ -52,6 +52,7 @@ async def chat(
     is_router: bool = False,
     is_answer: bool = False,
     skip_context: bool = False,
+    max_tokens: int = 1024,
 ) -> str:
     global _context_logged
     if not _context_logged:
@@ -70,7 +71,7 @@ async def chat(
         ]
 
     if config.ANTHROPIC_API_KEY:
-        return await _chat_anthropic(messages, model=model, is_router=is_router, is_answer=is_answer)
+        return await _chat_anthropic(messages, model=model, is_router=is_router, is_answer=is_answer, max_tokens=max_tokens)
     return await _chat_ollama(messages, is_router=is_router)
 
 
@@ -80,6 +81,7 @@ async def _chat_anthropic(
     model: str | None,
     is_router: bool,
     is_answer: bool,
+    max_tokens: int = 1024,
 ) -> str:
     import anthropic
 
@@ -98,7 +100,7 @@ async def _chat_anthropic(
     client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
     kwargs: dict = dict(
         model=resolved_model,
-        max_tokens=1024,
+        max_tokens=max_tokens,
         messages=non_system,
     )
     if system_content:

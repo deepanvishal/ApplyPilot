@@ -49,6 +49,7 @@ async def synthesizer(state: AgentState) -> dict:
                 {"role": "system", "content": prompts.SYNTHESIZER_SYSTEM},
                 {"role": "user", "content": user_content},
             ],
+            max_tokens=512,
         )
         synthesis = text
         logger.info(
