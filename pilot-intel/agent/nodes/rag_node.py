@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 @traceable
 async def rag_node(state: AgentState) -> dict:
+    from logging_config import log_node_input, log_node_output
+
+    log_node_input("rag_node", state)
+
     rag_queries = state.get("rag_queries") or []
     query = rag_queries[-1] if rag_queries else state["question"]
 
@@ -26,8 +30,18 @@ async def rag_node(state: AgentState) -> dict:
             expanded_terms=state.get("expanded_terms") or [],
             qdrant_filter=state.get("qdrant_filter") or {},
         )
-        # results is already list[dict] — do not wrap in another list
+
+        logger.info(
+            "[rag_node] retrieved %d unique jobs | top: %s @ %.3f",
+            len(results),
+            results[0]["title"] if results else "none",
+            results[0]["reranker_score"] if results else 0,
+        )
+
+        log_node_output("rag_node", {"job_count": len(results)})
         return {"rag_results": results}
+
     except Exception as e:
         logger.warning("rag_node error: %s", e)
+        log_node_output("rag_node", {"job_count": 0, "error": str(e)})
         return {"rag_results": []}

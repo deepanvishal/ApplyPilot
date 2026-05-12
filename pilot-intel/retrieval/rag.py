@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import os
 from collections import defaultdict
+from pathlib import Path
 
 import tiktoken
 import torch
@@ -34,8 +36,24 @@ if torch.cuda.is_available():
     torch.cuda.set_device(0)
     logger.info("Using GPU: %s", torch.cuda.get_device_name(0))
 
+
+def _resolve_model_path(model_id: str) -> str:
+    """Return local HF cache snapshot path to avoid hub API calls in offline mode."""
+    hf_home = Path(os.getenv("HF_HOME", Path.home() / ".cache" / "huggingface"))
+    model_dir = hf_home / "hub" / ("models--" + model_id.replace("/", "--"))
+    refs_main = model_dir / "refs" / "main"
+    if refs_main.exists():
+        snap_hash = refs_main.read_text().strip()
+        snap_path = model_dir / "snapshots" / snap_hash
+        if snap_path.exists():
+            logger.info("Resolved %s to local cache: %s", model_id, snap_path)
+            return str(snap_path)
+    logger.warning("Local cache not found for %s; using hub ID", model_id)
+    return model_id
+
+
 logger.info("Loading reranker %s on %s...", config.RERANKER_MODEL, _device)
-_reranker: CrossEncoder = CrossEncoder(config.RERANKER_MODEL, device=_device)
+_reranker: CrossEncoder = CrossEncoder(_resolve_model_path(config.RERANKER_MODEL), device=_device)
 logger.info("Reranker loaded.")
 if _device == "cuda":
     allocated = torch.cuda.memory_allocated() / 1024**3

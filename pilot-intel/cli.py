@@ -63,9 +63,10 @@ def ingest(
 @app.command()
 def ask(
     question: Optional[str] = typer.Argument(default=None),
+    debug: bool = typer.Option(False, "--debug", help="Show per-node trace in terminal"),
 ) -> None:
     """Ask a natural language question about your job search data."""
-    setup_logging("ask")
+    setup_logging("ask", debug=debug)
     # TODO: token-by-token streaming requires LLM streaming support inside nodes
     from agent.graph import run as agent_run
 

@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 def load_env() -> None:
     """Load .env files. Uses hardcoded default for user-level config to avoid bootstrap cycle."""
-    _user_env = Path.home() / ".pilot-intel" / ".env"
-    load_dotenv(_user_env)
+    load_dotenv(Path.home() / ".applypilot" / ".env")
+    load_dotenv(Path.home() / ".pilot-intel" / ".env")
     load_dotenv(Path.cwd() / ".env")
 
 
@@ -50,6 +50,24 @@ LLM_URL: str = os.getenv("LLM_URL", "http://localhost:11434/v1")
 
 # Optional: Qdrant server mode overrides local path
 QDRANT_URL: str | None = os.getenv("QDRANT_URL")
+
+# --- Anthropic ---
+
+ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_LLM_MODEL: str = os.getenv("ANTHROPIC_LLM_MODEL", "claude-haiku-4-5-20251001")
+ANTHROPIC_ROUTER_MODEL: str = os.getenv("ANTHROPIC_ROUTER_MODEL", "claude-haiku-4-5-20251001")
+
+# --- LangSmith ---
+
+LANGSMITH_API_KEY: str | None = os.getenv("LANGSMITH_API_KEY")
+LANGSMITH_PROJECT: str = os.getenv("LANGSMITH_PROJECT", "pilot-intel")
+LANGSMITH_TRACING: bool = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+
+# LangSmith requires these specific env vars to activate tracing
+if LANGSMITH_API_KEY:
+    os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+    os.environ.setdefault("LANGCHAIN_API_KEY", LANGSMITH_API_KEY)
+    os.environ.setdefault("LANGCHAIN_PROJECT", LANGSMITH_PROJECT)
 
 
 # --- Setup helpers ---

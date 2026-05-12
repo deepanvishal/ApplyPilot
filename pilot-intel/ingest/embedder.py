@@ -6,6 +6,13 @@ import os
 from pathlib import Path
 
 import torch
+
+# FlagEmbedding 1.4.0 references is_flash_attn_greater_or_equal_2_10 which was
+# removed in transformers 5.x. Patch it in before the import.
+import transformers.utils as _tu
+if not hasattr(_tu, "is_flash_attn_greater_or_equal_2_10"):
+    _tu.is_flash_attn_greater_or_equal_2_10 = lambda: False
+
 from FlagEmbedding import BGEM3FlagModel
 
 import config

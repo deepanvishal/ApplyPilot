@@ -2,11 +2,9 @@
 
 import logging
 
-import httpx
 from langsmith import traceable
 
 import agent.prompts as prompts
-import config
 from agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -16,6 +14,11 @@ _SQL_ROW_CAP = 20
 
 @traceable
 async def synthesizer(state: AgentState) -> dict:
+    from logging_config import log_node_input, log_node_output
+    from agent.llm_client import chat
+
+    log_node_input("synthesizer", state)
+
     sql_results = state.get("sql_results") or []
     rag_results = state.get("rag_results") or []
     summary = state.get("summary") or ""
@@ -41,20 +44,23 @@ async def synthesizer(state: AgentState) -> dict:
     user_content = f"Question: {state['question']}\n\n{context}"
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{config.LLM_URL}/chat/completions",
-                json={
-                    "model": config.LLM_MODEL,
-                    "messages": [
-                        {"role": "system", "content": prompts.SYNTHESIZER_SYSTEM},
-                        {"role": "user", "content": user_content},
-                    ],
-                    "temperature": 0.0,
-                },
-            )
-            response.raise_for_status()
-            return {"synthesis": response.json()["choices"][0]["message"]["content"]}
+        text = await chat(
+            messages=[
+                {"role": "system", "content": prompts.SYNTHESIZER_SYSTEM},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        synthesis = text
+        logger.info(
+            "[synthesizer] synthesis length: %d chars | sql_rows=%d | rag_jobs=%d",
+            len(synthesis),
+            len(sql_results),
+            len(rag_results),
+        )
+        log_node_output("synthesizer", {"synthesis": synthesis[:200]})
+        return {"synthesis": synthesis}
+
     except Exception as e:
         logger.warning("synthesizer error: %s", e)
+        log_node_output("synthesizer", {"synthesis": "", "error": str(e)})
         return {"synthesis": ""}

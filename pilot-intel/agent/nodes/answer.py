@@ -2,11 +2,9 @@
 
 import logging
 
-import httpx
 from langsmith import traceable
 
 import agent.prompts as prompts
-import config
 from agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -14,26 +12,32 @@ logger = logging.getLogger(__name__)
 
 @traceable
 async def answer(state: AgentState) -> dict:
+    from logging_config import log_node_input, log_node_output
+    from agent.llm_client import chat
+
+    log_node_input("answer", state)
+
     user_content = (
         f"Question: {state['question']}\n\n"
         f"Findings:\n{state.get('synthesis', '')}"
     )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{config.LLM_URL}/chat/completions",
-                json={
-                    "model": config.LLM_MODEL,
-                    "messages": [
-                        {"role": "system", "content": prompts.ANSWER_SYSTEM},
-                        {"role": "user", "content": user_content},
-                    ],
-                    "temperature": 0.0,
-                },
-            )
-            response.raise_for_status()
-            return {"final_answer": response.json()["choices"][0]["message"]["content"]}
+        text = await chat(
+            messages=[
+                {"role": "system", "content": prompts.ANSWER_SYSTEM},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        final_answer = text
+        logger.info("[answer] answer length: %d chars", len(final_answer))
+        output = {"final_answer": final_answer}
+        log_node_output("answer", {"final_answer": final_answer[:200]})
+        return output
+
     except Exception as e:
         logger.warning("answer node error: %s", e)
-        return {"final_answer": state.get("synthesis", "No answer available.")}
+        fallback = state.get("synthesis", "No answer available.")
+        output = {"final_answer": fallback}
+        log_node_output("answer", {"final_answer": fallback[:200], "error": str(e)})
+        return output

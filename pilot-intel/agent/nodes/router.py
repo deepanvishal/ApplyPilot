@@ -2,12 +2,11 @@
 
 import json
 import logging
+import re
 
-import httpx
 from langsmith import traceable
 
 import agent.prompts as prompts
-import config
 from agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -15,27 +14,52 @@ logger = logging.getLogger(__name__)
 
 @traceable
 async def router(state: AgentState) -> dict:
+    from logging_config import log_node_input, log_node_output
+    from agent.llm_client import chat, strip_fences
+
+    log_node_input("router", state)
+
+    user_content = (
+        f"{state['question']}\n\n"
+        "Return ONLY a JSON object. No text before or after. No markdown. "
+        "Start your response with { and end with }."
+    )
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{config.ROUTER_URL}/chat/completions",
-                json={
-                    "model": config.ROUTER_MODEL,
-                    "messages": [
-                        {"role": "system", "content": prompts.ROUTER_SYSTEM},
-                        {"role": "user", "content": state["question"]},
-                    ],
-                    "temperature": 0.0,
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-            return {
-                "question_type": parsed["question_type"],
-                "scope": parsed.get("scope", ""),
-                "qdrant_filter": parsed.get("qdrant_filter", {}),
-            }
+        content = await chat(
+            messages=[
+                {"role": "system", "content": prompts.ROUTER_SYSTEM},
+                {"role": "user", "content": user_content},
+            ],
+            is_router=True,
+        )
+        text = strip_fences(content)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                parsed = json.loads(match.group())
+            else:
+                raise
+
+        question_type = parsed["question_type"]
+        scope = parsed.get("scope", "")
+        qdrant_filter = parsed.get("qdrant_filter", {})
+
+        logger.info(
+            "[router] question_type=%s | scope=%r | filter=%s",
+            question_type, scope, qdrant_filter,
+        )
+        output = {
+            "question_type": question_type,
+            "scope": scope,
+            "qdrant_filter": qdrant_filter,
+        }
+        log_node_output("router", output)
+        return output
+
     except Exception as e:
         logger.warning("Router parse error: %s — defaulting to hybrid", e)
-        return {"question_type": "hybrid", "scope": "", "qdrant_filter": {}}
+        output = {"question_type": "hybrid", "scope": "", "qdrant_filter": {}}
+        log_node_output("router", output)
+        return output
