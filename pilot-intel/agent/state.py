@@ -25,4 +25,6 @@ class AgentState(TypedDict):
     iterations:      Annotated[int, _keep_last]
     final_answer:    Annotated[str, _keep_last]
     langsmith_trace: Annotated[str, _keep_last]
-    followup_target: Annotated[str, _keep_last]
+    followup_target:    Annotated[str, _keep_last]
+    detected_company:   Annotated[str, _keep_last]
+    company_candidates: Annotated[list[dict], _keep_last]

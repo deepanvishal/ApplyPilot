@@ -562,6 +562,12 @@ _ALL_COLUMNS: dict[str, str] = {
     "expiry_checked_at": "TEXT",
     # Discovery source — which pipeline found this job
     "source": "TEXT",
+    # Salary normalisation (all values annual USD integers)
+    "salary_low":        "INTEGER",
+    "salary_high":       "INTEGER",
+    "salary_avg":        "INTEGER",
+    "salary_confidence": "REAL",
+    "salary_tier":       "INTEGER",
 }
 
 

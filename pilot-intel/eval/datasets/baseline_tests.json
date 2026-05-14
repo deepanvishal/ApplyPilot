@@ -1,0 +1,120 @@
+[
+  {
+    "id": "RC_001",
+    "category": "routing",
+    "question": "How many jobs have I applied to?",
+    "expected_type": "pure_sql"
+  },
+  {
+    "id": "RC_002",
+    "category": "routing",
+    "question": "What skills do companies look for in senior software engineers?",
+    "expected_type": "pure_rag"
+  },
+  {
+    "id": "RC_003",
+    "category": "routing",
+    "question": "How many Amazon jobs are there, and what skills do they emphasize?",
+    "expected_type": "hybrid"
+  },
+  {
+    "id": "RC_004",
+    "category": "routing",
+    "question": "Show me the 5 most recently discovered jobs",
+    "expected_type": "pure_sql"
+  },
+  {
+    "id": "SC_001",
+    "category": "sql",
+    "question": "How many total jobs are in the database?",
+    "sql_keywords": ["COUNT"]
+  },
+  {
+    "id": "SC_002",
+    "category": "sql",
+    "question": "Which companies have the most job postings?",
+    "sql_keywords": ["GROUP BY", "company"]
+  },
+  {
+    "id": "SC_003",
+    "category": "sql",
+    "question": "What is the average salary across all jobs?",
+    "sql_keywords": ["salary"]
+  },
+  {
+    "id": "SC_004",
+    "category": "sql",
+    "question": "Show me jobs discovered in the last 7 days",
+    "sql_keywords": ["discovered_at"]
+  },
+  {
+    "id": "AQ_001",
+    "category": "agent",
+    "question": "How many jobs have I applied to this month?",
+    "tags": ["sql", "count"]
+  },
+  {
+    "id": "AQ_002",
+    "category": "agent",
+    "question": "What are the most common job titles in my search?",
+    "tags": ["sql", "aggregation"]
+  },
+  {
+    "id": "AQ_003",
+    "category": "agent",
+    "question": "Tell me about software engineering roles at Google",
+    "tags": ["rag", "company"]
+  },
+  {
+    "id": "AQ_004",
+    "category": "agent",
+    "question": "What technical skills are companies asking for most?",
+    "tags": ["rag", "skills"]
+  },
+  {
+    "id": "AQ_005",
+    "category": "agent",
+    "question": "What is the capital of France?",
+    "tags": ["out-of-scope"]
+  },
+  {
+    "id": "CC_001",
+    "category": "conversation",
+    "history": [
+      {"role": "user", "content": "How many jobs have I applied to?"},
+      {"role": "assistant", "content": "You have applied to 42 jobs."}
+    ],
+    "question": "What about at Amazon specifically?",
+    "tags": ["followup", "company-filter"]
+  },
+  {
+    "id": "CC_002",
+    "category": "conversation",
+    "history": [
+      {"role": "user", "content": "Show me recent software engineer jobs"},
+      {"role": "assistant", "content": "Here are recent software engineer jobs..."}
+    ],
+    "question": "Which ones are remote?",
+    "tags": ["followup", "filter"]
+  },
+  {
+    "id": "CC_003",
+    "category": "conversation",
+    "history": [
+      {"role": "user", "content": "What are the top companies hiring right now?"},
+      {"role": "assistant", "content": "The top companies are Google, Amazon, and Microsoft."}
+    ],
+    "question": "Tell me more about the first one",
+    "tags": ["followup", "reference-resolution"]
+  },
+  {
+    "id": "CC_004",
+    "category": "conversation",
+    "history": [
+      {"role": "user", "content": "How many jobs did I apply to last month?"},
+      {"role": "assistant", "content": "You applied to 15 jobs last month."}
+    ],
+    "question": "How does that compare to the month before?",
+    "tags": ["followup", "temporal"]
+  }
+]

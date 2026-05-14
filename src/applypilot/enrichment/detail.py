@@ -973,4 +973,35 @@ def run_enrichment(limit: int = 0, workers: int = 3) -> dict:
              dedup_result["removed"], dedup_result["before"], dedup_result["after"])
     stats["dedup_removed"] = dedup_result["removed"]
 
+    # Salary extraction — regex only (fast, no GPU needed).
+    # Runs on newly enriched jobs (salary_tier IS NULL).
+    # BERT pass is a separate GPU batch: py -3.12 -m applypilot salary --bert
+    from applypilot.enrichment.salary import backfill_salary
+    sal_stats = backfill_salary(conn, use_bert=False, use_ollama=False)
+    log.info("Salary regex: %d extracted, %d skipped", sal_stats["extracted"], sal_stats["skipped"])
+    stats["salary_extracted"] = sal_stats["extracted"]
+
+    # Pilot-intel incremental ingest — index new job descriptions into Qdrant
+    # so the RAG agent can search over fresh jobs immediately after enrichment.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    pilot_intel_dir = Path(__file__).resolve().parents[3] / "pilot-intel"
+    if pilot_intel_dir.exists():
+        log.info("Pilot-intel incremental ingest…")
+        result = subprocess.run(
+            [sys.executable, "cli.py", "ingest", "--incremental"],
+            cwd=str(pilot_intel_dir),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            log.info("Pilot-intel ingest complete")
+        else:
+            log.warning("Pilot-intel ingest failed (exit %d): %s",
+                        result.returncode, result.stderr[:300])
+    else:
+        log.debug("pilot-intel directory not found — skipping Qdrant ingest")
+
     return stats

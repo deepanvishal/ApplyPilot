@@ -823,6 +823,51 @@ def enrichlinkedin(
 
 
 @app.command()
+def salary(
+    limit: int = typer.Option(0, "--limit", help="Max jobs to process (0 = all)."),
+    bert: bool = typer.Option(False, "--bert", help="Enable BERT tier (GPU if available, else CPU)."),
+    ollama: bool = typer.Option(False, "--ollama", help="Enable Ollama tier (needs local Ollama running)."),
+    batch_size: int = typer.Option(128, "--batch-size", help="BERT GPU batch size (increase if VRAM allows)."),
+    min_confidence: float = typer.Option(0.50, "--min-confidence", help="Minimum confidence to write a result."),
+) -> None:
+    """Backfill salary_low / salary_high / salary_avg from job descriptions.
+
+    Cascade: Regex → BERT → Ollama. Each tier only runs if the prior tier
+    did not clear the confidence threshold.
+
+    Examples:
+        applypilot salary                             # regex only
+        applypilot salary --bert                      # regex + BERT
+        applypilot salary --bert --ollama             # full cascade
+        applypilot salary --limit 500 --bert --ollama # test on 500 jobs
+        applypilot salary --min-confidence 0.65       # stricter threshold
+    """
+    _bootstrap()
+    from applypilot.enrichment.salary import backfill_salary
+    from applypilot.database import get_connection
+
+    conn = get_connection()
+
+    tiers = "Tier 1 (regex)" + (" + Tier 2 (BERT)" if bert else "") + (" + Tier 3 (Ollama)" if ollama else "")
+    console.print(f"[bold]Salary backfill[/bold] — {tiers}")
+
+    result = backfill_salary(conn, limit=limit, min_confidence=min_confidence,
+                             use_bert=bert, use_ollama=ollama, batch_size=batch_size)
+    conn.close()
+
+    table = Table(title="Salary Backfill Results")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Processed",          str(result["processed"]))
+    table.add_row("Extracted",          str(result["extracted"]))
+    table.add_row("  Tier 1 (regex)",   str(result["tier1"]))
+    table.add_row("  Tier 2 (BERT)",    str(result["tier2"]))
+    table.add_row("  Tier 3 (Ollama)",  str(result["tier3"]))
+    table.add_row("Skipped",            str(result["skipped"]))
+    console.print(table)
+
+
+@app.command()
 def exploreserper(
     tbs: str = typer.Option(
         "qdr:w",

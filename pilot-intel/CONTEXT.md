@@ -36,6 +36,12 @@ This means:
 
 The SQLite database tracks:
 
+IMPORTANT — company name storage: Company names are scraped from job boards and are often
+abbreviated, shortened, or formatted inconsistently. Examples: "Alo Yoga" may be stored as
+"ALO"; "JPMorgan Chase" as "JPMorgan"; "Meta" as "Meta Platforms". When SQL results show a
+company name that looks like an abbreviated form of what the user asked about, treat it as a
+match and say so explicitly (e.g., "'ALO' is likely the abbreviated form of Alo Yoga in this DB").
+
 jobs table — every discovered and applied-to job:
 - fit_score (1-10): LLM-scored resume match. Higher = better fit.
 - apply_status: current pipeline state

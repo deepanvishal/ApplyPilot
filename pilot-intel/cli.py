@@ -103,26 +103,21 @@ def ask(
 
 @app.command()
 def eval(
-    type: str = typer.Option("all", help="ragas | deepeval | langsmith | all"),
+    category: Optional[str] = typer.Option(None, help="routing | sql | agent | conversation"),
+    fast: bool = typer.Option(False, "--fast", help="Skip slow LLM-heavy tests (agent, conversation)"),
+    generate: bool = typer.Option(False, "--generate", help="Re-generate baseline_tests.json from DB"),
 ) -> None:
-    """Run evaluation suite against labeled datasets."""
+    """Run evaluation suite (pytest + DeepEval) against labeled datasets."""
     setup_logging("eval")
-    valid = {"ragas", "deepeval", "langsmith", "all"}
-    if type not in valid:
-        console.print(f"[red]Unknown eval type '{type}'. Choose from: {', '.join(sorted(valid))}[/red]")
-        raise typer.Exit(1)
 
-    if type in ("ragas", "all"):
-        console.print("Running ragas evaluation...")
-        import eval.ragas_eval  # noqa: F401
+    if generate:
+        from eval.datasets.generate_baseline import generate as gen_baseline
+        gen_baseline()
+        return
 
-    if type in ("deepeval", "all"):
-        console.print("Running deepeval evaluation...")
-        import eval.deepeval_eval  # noqa: F401
-
-    if type in ("langsmith", "all"):
-        console.print("Running langsmith evaluation...")
-        import eval.langsmith_eval  # noqa: F401
+    from eval.run_evals import run as run_evals
+    code = run_evals(category=category, fast=fast)
+    raise typer.Exit(code)
 
 
 # ---------------------------------------------------------------------------

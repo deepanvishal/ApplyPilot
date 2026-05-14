@@ -148,7 +148,27 @@ CREATE TABLE jobs (
     predicted_expiry      TEXT,
     expiry_reason         TEXT,
     expiry_checked_at     TEXT,
-    source                TEXT
+    source                TEXT,
+
+    -- Extracted salary (annual USD integers). Populated by salary extraction pipeline.
+    -- salary_low / salary_high: the range bounds. salary_avg = (low + high) / 2.
+    -- Hourly rates are converted to annual (×2080). NULL means not yet extracted or not found.
+    -- ~27,000 jobs have salary data (~43% of total).
+    -- Use salary_avg for single-value salary comparisons; use low/high for range queries.
+    salary_low            INTEGER,   -- annual USD lower bound
+    salary_high           INTEGER,   -- annual USD upper bound
+    salary_avg            INTEGER,   -- (salary_low + salary_high) / 2, annual USD
+
+    -- Confidence score of the extraction (0.0–1.0). Higher = more reliable.
+    salary_confidence     REAL,
+
+    -- Which extraction method found the salary:
+    -- NULL  = never attempted
+    -- -1    = all tiers tried, no salary found (skip permanently)
+    --  0    = regex failed, awaiting BERT pass
+    --  1    = extracted by regex (fast pattern matching)
+    --  2    = extracted by BERT QA model
+    salary_tier           INTEGER
 );
 
 CREATE TABLE company_signals (
@@ -302,6 +322,86 @@ WHERE apply_status = 'applied'
 GROUP BY site
 ORDER BY total_applied DESC;""",
     ),
+    (
+        "Have I applied to Alo Yoga?",
+        """-- Company names are scraped and often abbreviated: 'Alo Yoga' may be stored as 'ALO'.
+-- Use OR to match both full name and first keyword. GROUP BY company so each match is visible.
+SELECT company, COUNT(*) AS applied_count
+FROM jobs
+WHERE (LOWER(company) LIKE '%alo yoga%' OR LOWER(company) LIKE '%alo%')
+  AND apply_status = 'applied'
+GROUP BY company
+ORDER BY applied_count DESC;""",
+    ),
+    (
+        "How many jobs have I applied to at Google?",
+        """-- 'Google' may appear as 'Google LLC', 'Google DeepMind', etc. GROUP BY company to show each variant.
+SELECT company, COUNT(*) AS applied_count
+FROM jobs
+WHERE LOWER(company) LIKE '%google%'
+  AND apply_status = 'applied'
+GROUP BY company
+ORDER BY applied_count DESC;""",
+    ),
+    (
+        "What technical skills are companies asking for most?",
+        """-- Skills live in full_description text; count mentions per skill using LIKE, no separate skills table exists.
+-- Use UNION ALL to build a skill frequency table in one query.
+SELECT skill, COUNT(*) AS jobs_mentioning,
+       ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM jobs WHERE full_description IS NOT NULL), 1) AS pct
+FROM (
+    SELECT 'Python'           AS skill FROM jobs WHERE LOWER(full_description) LIKE '%python%'           AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'SQL'              FROM jobs WHERE LOWER(full_description) LIKE '%sql%'              AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'AWS'              FROM jobs WHERE LOWER(full_description) LIKE '%aws%'              AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'Machine Learning' FROM jobs WHERE LOWER(full_description) LIKE '%machine learning%' AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'R'                FROM jobs WHERE LOWER(full_description) LIKE '% r %'              AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'Spark'            FROM jobs WHERE LOWER(full_description) LIKE '%spark%'            AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'Tableau'          FROM jobs WHERE LOWER(full_description) LIKE '%tableau%'          AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'Azure'            FROM jobs WHERE LOWER(full_description) LIKE '%azure%'            AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'PyTorch'          FROM jobs WHERE LOWER(full_description) LIKE '%pytorch%'          AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'TensorFlow'       FROM jobs WHERE LOWER(full_description) LIKE '%tensorflow%'       AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'Docker'           FROM jobs WHERE LOWER(full_description) LIKE '%docker%'           AND full_description IS NOT NULL
+    UNION ALL
+    SELECT 'Kubernetes'       FROM jobs WHERE LOWER(full_description) LIKE '%kubernetes%'       AND full_description IS NOT NULL
+) t
+GROUP BY skill
+ORDER BY jobs_mentioning DESC;""",
+    ),
+    (
+        "What is the average salary for jobs I applied to, broken down by fit score?",
+        """-- Use salary_avg for single-value comparisons; filter salary_low IS NOT NULL to exclude unextracted rows
+SELECT fit_score,
+       COUNT(*) AS jobs_with_salary,
+       ROUND(AVG(salary_avg)) AS avg_salary,
+       ROUND(AVG(salary_low)) AS avg_low,
+       ROUND(AVG(salary_high)) AS avg_high
+FROM jobs
+WHERE apply_status = 'applied'
+  AND salary_low IS NOT NULL
+GROUP BY fit_score
+ORDER BY fit_score DESC;""",
+    ),
+    (
+        "Show me high-fit unapplied jobs paying over 150k",
+        """-- salary_low and salary_high are annual USD integers; salary_avg = (low + high) / 2
+SELECT title, company, salary_low, salary_high, salary_avg, fit_score, site
+FROM jobs
+WHERE apply_status IS NULL
+  AND fit_score >= 8
+  AND salary_avg >= 150000
+ORDER BY salary_avg DESC, fit_score DESC
+LIMIT 50;""",
+    ),
 ]
 
 
@@ -379,6 +479,22 @@ def _extract_sql(text: str) -> str:
 async def generate_sql(question: str, scope: str = "", previous_error: str = "") -> str:
     from agent.llm_client import chat
 
+    # Rewrite exact company matches to OR-LIKE: match full name OR first keyword.
+    # Scraped names are abbreviated: 'Alo Yoga' → 'ALO', 'JPMorgan Chase' → 'JPMorgan'.
+    if scope:
+        def _company_like(m: re.Match) -> str:
+            name = m.group(1)
+            full = name.lower()
+            first = full.split()[0]
+            if first == full:  # single-word name — one LIKE is enough
+                return f"LOWER(company) LIKE '%{first}%'"
+            return f"(LOWER(company) LIKE '%{full}%' OR LOWER(company) LIKE '%{first}%')"
+        scope = re.sub(
+            r"\bcompany(?:_name)?\s*=\s*'([^']+)'",
+            _company_like,
+            scope,
+            flags=re.IGNORECASE,
+        )
     scope_hint = f"\nOnly consider rows matching this condition: {scope}" if scope else ""
     error_hint = (
         f"\n\nThe previous query failed with: {previous_error}\nRewrite it to fix this error."
@@ -403,6 +519,12 @@ async def generate_sql(question: str, scope: str = "", previous_error: str = "")
         "- `outcome`: DO NOT QUERY — all rows are NULL; no employer responses recorded yet.\n"
         "- `company_signals.tier`: enterprise | startup | unknown | tier2 | faang  (NOT tier1/tier3)\n"
         "- `company_signals.size_tier`: '50k+' | '5k-50k' | '500-5k' | '50-500' | '1-50' | 'unknown'\n\n"
+        "### COMPANY NAME MATCHING (critical)\n"
+        "Company names in the DB are scraped and may be abbreviated, shortened, or differ from common usage.\n"
+        "Examples: 'Alo Yoga' may be stored as 'ALO'; 'JPMorgan Chase' as 'JPMorgan'; 'Meta' as 'Meta Platforms'.\n"
+        "ALWAYS use LOWER(company) LIKE '%keyword%' for company name filters. NEVER use exact match (company = 'X').\n"
+        "For multi-word company names, match the most distinctive word: 'Alo Yoga' → LOWER(company) LIKE '%alo%'\n"
+        "When you need to show which company matched, include DISTINCT company in the SELECT.\n\n"
         f"### Database Schema\n{SCHEMA_PROMPT}\n\n"
         f"### Examples\n{_format_examples()}"
     )

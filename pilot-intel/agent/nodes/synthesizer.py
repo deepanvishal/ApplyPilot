@@ -30,10 +30,12 @@ async def synthesizer(state: AgentState) -> dict:
     for r in rag_results:
         payload = r.get("payload", {})
         score = r.get("reranker_score", r.get("score", 0.0))
-        rag_lines.append(
+        header = (
             f"{payload.get('title', '?')} at {payload.get('company', '?')}"
             f" ({payload.get('site', '?')}): score={score:.3f}"
         )
+        snippet = (payload.get("full_description") or payload.get("description") or "")[:300]
+        rag_lines.append(header + (f"\n  {snippet}" if snippet else ""))
     rag_text = "\n".join(rag_lines) if rag_lines else "No retrieved job descriptions."
 
     context = f"SQL Results:\n{sql_text}"
