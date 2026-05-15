@@ -1,4 +1,4 @@
-"""Answer node: format and stream the final answer to the CLI."""
+"""Answer node: produce and stream the final user-facing answer in a single LLM call."""
 
 import logging
 
@@ -17,12 +17,14 @@ async def answer(state: AgentState) -> dict:
 
     log_node_input("answer", state)
 
+    # synthesis is now the raw formatted context (SQL rows + RAG chunks)
+    context = state.get("synthesis", "")
+    history = state.get("history") or []
+
     user_content = (
         f"Question: {state['question']}\n\n"
-        f"Findings:\n{state.get('synthesis', '')}"
+        f"Data:\n{context}"
     )
-
-    history = state.get("history") or []
 
     try:
         text = await chat(
@@ -41,7 +43,7 @@ async def answer(state: AgentState) -> dict:
 
     except Exception as e:
         logger.warning("answer node error: %s", e)
-        fallback = state.get("synthesis", "No answer available.")
+        fallback = context or "No answer available."
         output = {"final_answer": fallback}
         log_node_output("answer", {"final_answer": fallback[:200], "error": str(e)})
         return output

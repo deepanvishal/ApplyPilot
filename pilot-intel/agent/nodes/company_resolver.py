@@ -61,15 +61,25 @@ async def company_resolver(state: AgentState) -> dict:
     company_names = list(name_to_count)
 
     # ── Step 2: RapidFuzz scoring ──────────────────────────────────────────────
-    raw = process.extract(
-        keyword,
-        company_names,
-        scorer=fuzz.token_sort_ratio,
-        limit=50,
-    )
+    # Use max of token_sort_ratio and partial_ratio so prefixed names like
+    # "C0035 LiveRamp, Inc." still match keyword "liveramp" via substring hit.
+    def _score(name: str) -> int:
+        kw = keyword.lower()
+        n = name.lower()
+        # Direct substring: keyword appears in the company name (handles "C0035 LiveRamp, Inc.")
+        if kw in n:
+            return 100
+        ts = fuzz.token_sort_ratio(kw, n)
+        # Only use partial_ratio when name is not too short relative to keyword —
+        # prevents "Ro" / "ARA" scoring 100 because they're substrings of the keyword itself.
+        if len(n) >= len(kw) * 0.6:
+            return max(ts, fuzz.partial_ratio(kw, n))
+        return ts
+
+    scored = [(name, _score(name)) for name in company_names]
     candidates = [
         {"name": name, "score": score, "job_count": name_to_count[name]}
-        for name, score, _ in raw
+        for name, score in scored
         if score >= _MIN_SCORE
     ]
 
@@ -129,7 +139,13 @@ async def company_resolver(state: AgentState) -> dict:
         return s.replace("'", "''")
 
     in_list = ", ".join(f"'{_escape(c['name'])}'" for c in candidates)
-    new_scope = _COMPANY_LIKE_RE.sub(f"company IN ({in_list})", scope)
+    url_kw = _escape(keyword)
+    in_clause = (
+        f"(company IN ({in_list})"
+        f" OR LOWER(url) LIKE '%{url_kw}%'"
+        f" OR LOWER(application_url) LIKE '%{url_kw}%')"
+    )
+    new_scope = _COMPANY_LIKE_RE.sub(in_clause, scope)
 
     logger.info(
         "[company_resolver] %d candidates | top=%r (%.0f%%) | scope → %s",

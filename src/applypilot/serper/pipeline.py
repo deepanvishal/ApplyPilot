@@ -640,7 +640,7 @@ def promote_serper_jobs_to_jobs() -> int:
 
     rows = conn.execute("""
         SELECT sj.id, sj.url, sj.apply_url, sj.title, sj.company, sj.location,
-               sj.ats_type, sj.full_description, sj.discovered_at
+               sj.ats_type, sj.full_description, sj.discovered_at, sj.posted_date
         FROM serper_jobs sj
         WHERE sj.id > ?
           AND COALESCE(NULLIF(sj.apply_url, ''), sj.url) IS NOT NULL
@@ -658,8 +658,8 @@ def promote_serper_jobs_to_jobs() -> int:
             INSERT OR IGNORE INTO jobs
                 (url, title, company, location, site, strategy, source,
                  application_url, full_description, discovered_at,
-                 url_job_id, app_url_job_id)
-            VALUES (?, ?, ?, ?, ?, 'serpapi', ?, ?, ?, ?, ?, ?)
+                 posted_date, url_job_id, app_url_job_id)
+            VALUES (?, ?, ?, ?, ?, 'serpapi', ?, ?, ?, ?, ?, ?, ?)
         """, (
             canonical_url,
             r["title"], r["company"], r["location"], r["ats_type"],
@@ -667,6 +667,7 @@ def promote_serper_jobs_to_jobs() -> int:
             application_url,
             r["full_description"],
             r["discovered_at"] or now,
+            r["posted_date"],
             extract_job_id(canonical_url),
             extract_job_id(application_url) if application_url else None,
         ))

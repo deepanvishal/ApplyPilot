@@ -1,10 +1,7 @@
-"""Synthesizer node: combine SQL results, RAG chunks, and summary into a cited synthesis."""
+"""Synthesizer node: format SQL results and RAG chunks into structured context (no LLM call)."""
 
 import logging
 
-from langsmith import traceable
-
-import agent.prompts as prompts
 from agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -12,10 +9,8 @@ logger = logging.getLogger(__name__)
 _SQL_ROW_CAP = 20
 
 
-@traceable
 async def synthesizer(state: AgentState) -> dict:
     from logging_config import log_node_input, log_node_output
-    from agent.llm_client import chat
 
     log_node_input("synthesizer", state)
 
@@ -43,27 +38,10 @@ async def synthesizer(state: AgentState) -> dict:
         context += f"\n\nPattern Summary:\n{summary}"
     context += f"\n\nRetrieved Job Descriptions:\n{rag_text}"
 
-    user_content = f"Question: {state['question']}\n\n{context}"
-
-    try:
-        text = await chat(
-            messages=[
-                {"role": "system", "content": prompts.SYNTHESIZER_SYSTEM},
-                {"role": "user", "content": user_content},
-            ],
-            max_tokens=512,
-        )
-        synthesis = text
-        logger.info(
-            "[synthesizer] synthesis length: %d chars | sql_rows=%d | rag_jobs=%d",
-            len(synthesis),
-            len(sql_results),
-            len(rag_results),
-        )
-        log_node_output("synthesizer", {"synthesis": synthesis[:200]})
-        return {"synthesis": synthesis}
-
-    except Exception as e:
-        logger.warning("synthesizer error: %s", e)
-        log_node_output("synthesizer", {"synthesis": "", "error": str(e)})
-        return {"synthesis": ""}
+    logger.info(
+        "[synthesizer] context built: sql_rows=%d | rag_jobs=%d",
+        len(sql_results),
+        len(rag_results),
+    )
+    log_node_output("synthesizer", {"synthesis": context[:200]})
+    return {"synthesis": context}

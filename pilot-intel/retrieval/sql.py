@@ -325,23 +325,22 @@ ORDER BY total_applied DESC;""",
     (
         "Have I applied to Alo Yoga?",
         """-- Company names are scraped and often abbreviated: 'Alo Yoga' may be stored as 'ALO'.
--- Use OR to match both full name and first keyword. GROUP BY company so each match is visible.
-SELECT company, COUNT(*) AS applied_count
+-- Always include title so the caller knows which specific roles were applied to.
+SELECT company, title, applied_at
 FROM jobs
 WHERE (LOWER(company) LIKE '%alo yoga%' OR LOWER(company) LIKE '%alo%')
-  AND apply_status = 'applied'
-GROUP BY company
-ORDER BY applied_count DESC;""",
+  AND apply_status IN ('applied', 'already_applied')
+ORDER BY applied_at DESC;""",
     ),
     (
         "How many jobs have I applied to at Google?",
-        """-- 'Google' may appear as 'Google LLC', 'Google DeepMind', etc. GROUP BY company to show each variant.
-SELECT company, COUNT(*) AS applied_count
+        """-- 'Google' may appear as 'Google LLC', 'Google DeepMind', etc.
+-- Always include title so the caller knows which specific roles were applied to.
+SELECT company, title, applied_at
 FROM jobs
 WHERE LOWER(company) LIKE '%google%'
-  AND apply_status = 'applied'
-GROUP BY company
-ORDER BY applied_count DESC;""",
+  AND apply_status IN ('applied', 'already_applied')
+ORDER BY applied_at DESC;""",
     ),
     (
         "What technical skills are companies asking for most?",

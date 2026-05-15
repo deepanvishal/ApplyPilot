@@ -233,7 +233,7 @@ async def get_live(response: Response) -> dict:
     blocked_sites, blocked_patterns = _load_blocked()
 
     q_params: list = [max_attempts, min_score]
-    date_clause   = f"AND (posted_date IS NULL OR posted_date >= date('now', '-{max_days} days'))" if max_days else ""
+    date_clause   = f"AND posted_date >= date('now', '-{max_days} days')" if max_days else ""
     strict_clause = ""
     if strict:
         strict_clause = "AND (" + " OR ".join("LOWER(title) LIKE ?" for _ in _STRICT_KEYWORDS) + ")"

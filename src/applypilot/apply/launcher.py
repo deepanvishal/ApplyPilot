@@ -165,7 +165,7 @@ def acquire_job(target_url: str | None = None, min_score: int = 7,
                   AND (apply_status IS NULL OR apply_status = 'failed')
                   AND (apply_attempts IS NULL OR apply_attempts < ?)
                   AND fit_score >= ?
-                  {f"AND (posted_date IS NULL OR posted_date >= date('now', '-{max_days} days'))" if max_days else ""}
+                  {f"AND posted_date >= date('now', '-{max_days} days')" if max_days else ""}
                   {site_clause}
                   {url_clauses}
                   {strict_clause}
@@ -445,6 +445,7 @@ def run_job(job: dict, port: int, worker_id: int = 0,
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+    env.pop("ANTHROPIC_API_KEY", None)  # force Claude Code to use Max plan login, not API key
 
     update_state(worker_id, status="applying", job_title=job["title"],
                  company=job.get("site", ""), score=job.get("fit_score", 0),
