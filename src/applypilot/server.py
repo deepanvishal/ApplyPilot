@@ -277,7 +277,8 @@ async def get_live(response: Response) -> dict:
 
     # Fetch more than 10 so we can deduplicate by (company, title)
     next_jobs_raw = conn.execute(
-        f"""SELECT company, title, site, fit_score FROM jobs {base_where}
+        f"""SELECT company, title, site, fit_score, score_reasoning, location, salary
+            FROM jobs {base_where}
             ORDER BY
                 CASE WHEN optimizer_rank > 0 THEN optimizer_rank ELSE 999999 END ASC,
                 fit_score DESC,
@@ -300,12 +301,44 @@ async def get_live(response: Response) -> dict:
         if len(next_jobs_rows) == 10:
             break
 
+    # ── Last applied (10 most recent) ────────────────────────────────────────
+    last_applied_rows = conn.execute("""
+        SELECT company, title, site, fit_score, score_reasoning, location, salary, applied_at
+        FROM jobs
+        WHERE apply_status IN ('applied', 'already_applied')
+        ORDER BY applied_at DESC
+        LIMIT 10
+    """).fetchall()
+
+    # ── Last failed (10 most recent) ─────────────────────────────────────────
+    last_failed_rows = conn.execute("""
+        SELECT company, title, site, fit_score, score_reasoning, location, salary, apply_error, last_attempted_at
+        FROM jobs
+        WHERE apply_status = 'failed'
+        ORDER BY last_attempted_at DESC
+        LIMIT 10
+    """).fetchall()
+
     # ── ETA ──────────────────────────────────────────────────────────────────
     total_seq_ms = sum(
         count * (ats_stats.get(site, {}).get("avg_ms") or 300_000)
         for site, count in by_ats.items()
     )
     estimated_seconds = int(total_seq_ms / 1000 / max(n_workers, 1))
+
+    def _job_card(r, extra: dict) -> dict:
+        reasoning = (r["score_reasoning"] or "")
+        snippet = reasoning.split("\n")[0][:120] if reasoning else ""
+        return {
+            "company":  r["company"] or "",
+            "title":    r["title"] or "",
+            "site":     r["site"] or "",
+            "score":    r["fit_score"],
+            "location": r["location"] or "",
+            "salary":   r["salary"] or "",
+            "reasoning": snippet,
+            **extra,
+        }
 
     return {
         "today": {
@@ -323,12 +356,10 @@ async def get_live(response: Response) -> dict:
             "total": total_queue,
             "by_score": [{"score": k, "count": v} for k, v in sorted(by_score.items(), reverse=True)],
             "by_ats":   [{"site": k, "count": v} for k, v in sorted(by_ats.items(), key=lambda x: -x[1])],
-            "next_jobs": [
-                {"company": r["company"] or "", "title": r["title"] or "",
-                 "site": r["site"] or "", "score": r["fit_score"]}
-                for r in next_jobs_rows
-            ],
+            "next_jobs": [_job_card(r, {}) for r in next_jobs_rows],
         },
+        "last_applied": [_job_card(r, {"applied_at": r["applied_at"] or ""}) for r in last_applied_rows],
+        "last_failed":  [_job_card(r, {"apply_error": r["apply_error"] or "", "attempted_at": r["last_attempted_at"] or ""}) for r in last_failed_rows],
         "estimated_seconds": estimated_seconds,
     }
 

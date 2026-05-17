@@ -357,8 +357,8 @@ def reset_failed() -> int:
 # ---------------------------------------------------------------------------
 
 def _watchdog(worker_id: int, proc: subprocess.Popen,
-               inactivity_limit: int = 300,
-               wall_limit: int = 720) -> None:
+               inactivity_limit: int = 600,
+               wall_limit: int = 900) -> None:
     """Kill the Claude process if inactive for inactivity_limit seconds or total wall time exceeds wall_limit."""
     last_action = None
     last_change = time.time()
